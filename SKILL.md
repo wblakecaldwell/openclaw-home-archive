@@ -10,6 +10,12 @@ metadata:
 
 Authoritative root: `<archive-root>`, the configured household archive directory outside this repository. Set `HOME_ARCHIVE_ROOT` in the environment used to run the CLI, including commands launched by OpenClaw. `<archive-root>` is a documentation placeholder; replace it with the chosen absolute path. Apple Photos is a rebuildable projection only.
 
+Persist the location in OpenClaw configuration under
+`skills.entries.home-archive.env.HOME_ARCHIVE_ROOT` (the installer handles setup).
+There is no default archive location. If configuration is missing, complete setup
+before attempting archive operations; never invent a location. Direct terminal and
+sandboxed invocations must receive the environment variable explicitly.
+
 ## When to use
 Archive when intent is reasonably clear (for example “here’s the toaster we just bought”, “save this”, “this is the deck guy”, “add this receipt”). If archive intent or target record is ambiguous, ask. Never require categories.
 

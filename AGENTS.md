@@ -48,6 +48,8 @@ Configured root (`HOME_ARCHIVE_ROOT` environment variable):
 
 `<archive-root>` is a documentation placeholder for the chosen absolute archive path
 outside this repository. Pass the configured environment to every CLI invocation.
+There is no fallback location. The installer persists the user's choice under
+`skills.entries.home-archive.env.HOME_ARCHIVE_ROOT` in OpenClaw configuration.
 
 Do not make OpenClaw conversational memory, an embedding index, Apple Photos, temporary
 files, or model-generated summaries authoritative.

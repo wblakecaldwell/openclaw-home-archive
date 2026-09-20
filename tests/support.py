@@ -21,11 +21,12 @@ class ArchiveTestCase(unittest.TestCase):
         self.root = self.workspace / "archive"
         self.env = dict(os.environ, HOME_ARCHIVE_ROOT=str(self.root))
 
-        # Load a fresh module only after configuring its import-time derived paths.
+        # Configure a fresh module so every derived path uses this test's archive.
         with patch.dict(os.environ, {"HOME_ARCHIVE_ROOT": str(self.root)}):
             spec = importlib.util.spec_from_file_location("archive_under_test", SCRIPT)
             self.archive = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(self.archive)
+            self.archive.configure_root()
 
         # Fail closed: even an unexpected Photos call cannot launch osascript.
         guard = patch.object(

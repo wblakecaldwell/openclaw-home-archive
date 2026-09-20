@@ -63,6 +63,10 @@ Configured root (`HOME_ARCHIVE_ROOT` environment variable):
 outside this repository. Configure the variable in the environment running the CLI,
 including OpenClaw-launched commands. Changing it selects a directory; it does not
 migrate existing data.
+There is no default archive directory. Installation stores an explicit user choice
+under `skills.entries.home-archive.env.HOME_ARCHIVE_ROOT` through OpenClaw's config
+CLI. The Python archive CLI requires the environment variable at execution time;
+importing the module and requesting CLI help do not require configuration.
 
 This layer owns durable records, attachments, provenance, and event history.
 

@@ -40,12 +40,18 @@ python3 -m unittest tests.test_archive.ArchiveTests.test_merge_with_self_is_reje
   statuses, persisted identifiers, and failure/repair flows.
 - `test_photos.py` tests synchronization and rebuild orchestration with mocked
   Photos operations.
+- `test_install.py` runs the installer with a disposable home directory to verify
+  replacement, failure handling, and preservation of external data and configuration.
 
 Each test creates and cleans up its own temporary directory. The shared helper in
-`tests/support.py` sets `HOME_ARCHIVE_ROOT` before loading a fresh script module,
-so all derived paths point to the temporary archive. CLI subprocesses receive the
+`tests/support.py` sets `HOME_ARCHIVE_ROOT` and calls `configure_root()` on a fresh
+script module, so all derived paths point to the temporary archive. CLI subprocesses receive the
 same explicit environment. Direct tests block the AppleScript boundary, and the
 subprocess helper allows only commands that do not invoke Photos.
+
+Installer tests put a fake `openclaw` command on their subprocess PATH and use
+temporary config files. They verify the get/set contract without touching a real
+OpenClaw installation; live CLI compatibility remains a separate integration check.
 
 Create synthetic fixtures through the helper instead of adding household files to
 the repository. Test observable outcomes: preserved bytes, persisted metadata,

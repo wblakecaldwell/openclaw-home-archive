@@ -16,13 +16,23 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(
-    os.path.expanduser(
-        os.environ.get("HOME_ARCHIVE_ROOT", "~/Documents/OpenClaw/HomeArchive")
-    )
-)
-RECORDS, TRASH, STATE = ROOT / "records", ROOT / "trash", ROOT / "state"
-SEQ = STATE / "sequence.json"
+ROOT = RECORDS = TRASH = STATE = SEQ = None
+
+
+def configure_root():
+    """Resolve required runtime configuration without choosing a fallback location."""
+    global ROOT, RECORDS, TRASH, STATE, SEQ
+    value = os.environ.get("HOME_ARCHIVE_ROOT")
+    if not value or not value.strip():
+        raise ValueError("No archive directory configured. Set HOME_ARCHIVE_ROOT.")
+    root = Path(os.path.expanduser(value))
+    if not root.is_absolute() or "<archive-root>" in value:
+        raise ValueError("HOME_ARCHIVE_ROOT must be an absolute archive path.")
+    ROOT = root
+    RECORDS, TRASH, STATE = root / "records", root / "trash", root / "state"
+    SEQ = STATE / "sequence.json"
+
+
 ALBUM = "Home Archive"
 IMAGE_EXTS = {
     ".jpg",
@@ -821,6 +831,7 @@ def main():
     sub.add_parser("doctor")
     a = ap.parse_args()
     try:
+        configure_root()
         if a.cmd == "init":
             emit(init())
         if a.cmd == "create":

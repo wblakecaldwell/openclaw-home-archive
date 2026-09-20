@@ -80,3 +80,30 @@ class CLITests(ArchiveTestCase):
     def test_invalid_spec_type_returns_failure(self):
         self.cli("create", "--spec", self.write_spec([]), ok=False)
         self.assertEqual(list(self.root.glob("records/*/metadata.json")), [])
+
+    def test_unconfigured_cli_fails_without_writes(self):
+        for value in (None, "", "   ", "relative/path", "<archive-root>"):
+            with self.subTest(value=value):
+                if value is None:
+                    self.env.pop("HOME_ARCHIVE_ROOT", None)
+                else:
+                    self.env["HOME_ARCHIVE_ROOT"] = value
+                self.assertIn("HOME_ARCHIVE_ROOT", self.cli("init", ok=False)["detail"])
+                self.assertFalse(self.root.exists())
+
+    def test_help_works_without_archive_configuration(self):
+        import subprocess
+        import sys
+        from tests.support import SCRIPT
+
+        self.env.pop("HOME_ARCHIVE_ROOT", None)
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--help"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("usage:", result.stdout)
+        self.assertFalse(self.root.exists())
