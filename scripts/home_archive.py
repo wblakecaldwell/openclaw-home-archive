@@ -49,8 +49,10 @@ def today():
     return dt.date.today().isoformat()
 
 
-def emit(x, code=0):
-    """Write a JSON CLI response and exit with the supplied status."""
+def emit(x, code=None):
+    """Write JSON and derive the exit status from success unless explicitly supplied."""
+    if code is None:
+        code = 0 if x.get("ok") is True else 1
     print(json.dumps(x, indent=2, ensure_ascii=False))
     raise SystemExit(code)
 
@@ -476,6 +478,8 @@ def delete(e):
 
 def merge(c, d):
     """Combine evidence into the canonical record and soft-delete the duplicate."""
+    if c == d:
+        raise ValueError("cannot merge a record with itself")
     a, b = load(c), load(d)
     t = now()
     existing = set(facts(a))
@@ -656,11 +660,11 @@ def photo_items():
 
 def psync(dry):
     """Reconcile Photos items; dry runs skip item imports and metadata updates."""
-    # Even a dry run currently probes Photos and ensures the album exists.
     ok, why = photos_ok()
     if not ok:
         return {"ok": False, "error": "Photos unavailable", "detail": why}
-    ensure_album()
+    if not dry:
+        ensure_album()
     actions = []
     for m, a, p in photo_items():
         title, desc, kws = photo_meta(m, a)
