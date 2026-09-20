@@ -8,7 +8,7 @@ metadata:
 ---
 # Home Archive
 
-Authoritative root: `~/Documents/OpenClaw/HomeArchive`. Apple Photos is a rebuildable projection only.
+Authoritative root: `<archive-root>`, the configured household archive directory outside this repository. Set `HOME_ARCHIVE_ROOT` in the environment used to run the CLI, including commands launched by OpenClaw. `<archive-root>` is a documentation placeholder; replace it with the chosen absolute path. Apple Photos is a rebuildable projection only.
 
 ## When to use
 Archive when intent is reasonably clear (for example “here’s the toaster we just bought”, “save this”, “this is the deck guy”, “add this receipt”). If archive intent or target record is ambiguous, ask. Never require categories.

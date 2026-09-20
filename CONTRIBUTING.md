@@ -8,7 +8,7 @@ This project is experimental.
 2. Run the CLI against disposable test data, never a real household archive.
 3. Review `git diff --staged` for personal data, credentials, absolute user paths,
    message contents, logs, and archive attachments.
-4. Do not commit `~/Documents/OpenClaw/HomeArchive` or copies of it.
+4. Do not commit the configured `<archive-root>` directory or copies of it.
 
 ## Design principle
 
