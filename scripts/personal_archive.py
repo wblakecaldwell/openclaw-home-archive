@@ -47,6 +47,19 @@ IMAGE_EXTS = {
     ".bmp",
     ".dng",
 }
+RECORD_ID_RE = re.compile(r"^ARCHIVE-\d{8}-\d{4}$")
+ATTACHMENT_ID_RE = re.compile(r"^ARCHIVE-ATTACH-\d{8}-\d{4}$")
+
+
+def is_record_id(val: str) -> bool:
+    """Return True if val matches the canonical record ID format ARCHIVE-YYYYMMDD-NNNN."""
+    return bool(isinstance(val, str) and RECORD_ID_RE.match(val))
+
+
+def is_attachment_id(val: str) -> bool:
+    """Return True if val matches canonical attachment ID format ARCHIVE-ATTACH-YYYYMMDD-NNNN."""
+    return bool(isinstance(val, str) and ATTACHMENT_ID_RE.match(val))
+
 
 
 def now():
@@ -117,7 +130,9 @@ def next_id(kind):
         st = {"date": today(), "entity": 0, "attachment": 0}
     st[kind] = int(st.get(kind, 0)) + 1
     atomic_json(SEQ, st)
-    return f"{'PA' if kind=='entity' else 'PAA'}-{d}-{st[kind]:04d}"
+    prefix = "ARCHIVE" if kind == "entity" else "ARCHIVE-ATTACH"
+    return f"{prefix}-{d}-{st[kind]:04d}"
+
 
 
 def rdir(e):
@@ -127,10 +142,13 @@ def rdir(e):
 
 def load(e):
     """Read authoritative metadata or raise if the record does not exist."""
+    if not is_record_id(e):
+        raise ValueError(f"invalid record id: {e}")
     p = rdir(e) / "metadata.json"
     if not p.exists():
         raise FileNotFoundError(f"record not found: {e}")
     return json.loads(p.read_text())
+
 
 
 def facts(m):
@@ -222,7 +240,7 @@ def add_fact(m, f):
 def known_hashes():
     """Index stored attachment hashes, including inactive and deleted records."""
     o = {}
-    for p in RECORDS.glob("PA-*/metadata.json"):
+    for p in RECORDS.glob("ARCHIVE-*/metadata.json"):
         try:
             m = json.loads(p.read_text())
             for a in m.get("attachments", []):
@@ -366,7 +384,7 @@ def search(q, limit):
     """Rank non-deleted records by lexical matches and return bounded results."""
     terms = re.findall(r"[a-z0-9][a-z0-9._@+-]*", q.lower())
     out = []
-    for p in RECORDS.glob("PA-*/metadata.json"):
+    for p in RECORDS.glob("ARCHIVE-*/metadata.json"):
         try:
             m = json.loads(p.read_text())
         except:
@@ -404,12 +422,15 @@ def search(q, limit):
 
 def find_att(aid):
     """Find attachment metadata, including inactive or soft-deleted evidence."""
-    for p in RECORDS.glob("PA-*/metadata.json"):
+    if not is_attachment_id(aid):
+        raise ValueError(f"invalid attachment id: {aid}")
+    for p in RECORDS.glob("ARCHIVE-*/metadata.json"):
         m = json.loads(p.read_text())
         for a in m.get("attachments", []):
             if a["id"] == aid:
                 return m, a
     raise FileNotFoundError(aid)
+
 
 
 def setfact(e, k, v, source, conf):
@@ -603,6 +624,8 @@ def qlist(xs):
 
 def find_photo(aid):
     """Find a Photos item whose keywords contain the exact attachment ID."""
+    if not is_attachment_id(aid):
+        raise ValueError(f"invalid attachment id: {aid}")
     sc = """on run argv
 set target to item 1 of argv
 tell application "Photos"
@@ -656,7 +679,7 @@ end run
 
 def photo_items():
     """Yield active, publishable attachments from non-deleted records."""
-    for p in RECORDS.glob("PA-*/metadata.json"):
+    for p in RECORDS.glob("ARCHIVE-*/metadata.json"):
         try:
             m = json.loads(p.read_text())
         except:
@@ -691,14 +714,14 @@ def psync(dry):
 
 
 def managed_ids():
-    """List Photos search hits carrying a keyword with the PAA- prefix."""
+    """List Photos search hits carrying a keyword with the ARCHIVE-ATTACH- prefix."""
     sc = """tell application "Photos"
 set hits to search for "Personal Archive"
 set out to ""
 repeat with p in hits
 try
 repeat with k in (keywords of p)
-if (k as text) starts with "PAA-" then
+if (k as text) starts with "ARCHIVE-ATTACH-" then
 set out to out & (id of p) & linefeed
 exit repeat
 end if
@@ -709,6 +732,7 @@ return out
 end tell
 """
     return [x for x in osa(sc).splitlines() if x.strip()]
+
 
 
 def del_photos(ids):
@@ -760,16 +784,21 @@ def doctor():
     probs = []
     rc = ac = 0
     seen = {}
-    for p in RECORDS.glob("PA-*/metadata.json"):
+    for p in RECORDS.glob("ARCHIVE-*/metadata.json"):
         rc += 1
         try:
             m = json.loads(p.read_text())
         except Exception as e:
             probs.append(f"{p}: invalid JSON: {e}")
             continue
+        if not is_record_id(m.get("id", "")):
+            probs.append(f"invalid record ID {m.get('id')}: {p}")
         for a in m.get("attachments", []):
             ac += 1
+            if not is_attachment_id(a.get("id", "")):
+                probs.append(f"invalid attachment ID {a.get('id')} in {m.get('id')}")
             ap = rdir(m["id"]) / a["stored_relpath"]
+
             if not ap.exists():
                 probs.append(f"missing attachment {a['id']}: {ap}")
                 continue

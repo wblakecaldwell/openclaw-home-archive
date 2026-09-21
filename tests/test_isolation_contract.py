@@ -11,8 +11,8 @@ import tempfile
 import unittest
 
 PROJECT = Path(__file__).resolve().parents[1]
-ID_PATTERN = re.compile(r"^PA-\d{8}-\d{4}$")
-ATT_ID_PATTERN = re.compile(r"^PAA-\d{8}-\d{4}$")
+ID_PATTERN = re.compile(r"^ARCHIVE-\d{8}-\d{4}$")
+ATT_ID_PATTERN = re.compile(r"^ARCHIVE-ATTACH-\d{8}-\d{4}$")
 
 
 def validate_envelope(envelope):
@@ -56,12 +56,12 @@ class IsolationContractTests(unittest.TestCase):
             "source": "personal-archive",
             "operation": "search",
             "status": "found",
-            "record_id": "PA-20260920-0001",
-            "relay_message": "The toaster is a Breville BTA820XL (Archive ID: PA-20260920-0001).",
+            "record_id": "ARCHIVE-20260920-0001",
+            "relay_message": "The toaster is a Breville BTA820XL (Archive ID: ARCHIVE-20260920-0001).",
             "facts": {"brand": "Breville", "model": "BTA820XL"},
             "evidence": [
                 {
-                    "attachment_id": "PAA-20260920-0001",
+                    "attachment_id": "ARCHIVE-ATTACH-20260920-0001",
                     "fact": "model",
                     "value": "BTA820XL",
                     "source": "receipt.pdf",
@@ -89,8 +89,8 @@ class IsolationContractTests(unittest.TestCase):
             "source": "personal-archive",
             "operation": "create",
             "status": "mutated",
-            "record_id": "PA-20260920-0002",
-            "relay_message": "Created Personal Archive record for TestCo toaster (Archive ID: PA-20260920-0002).",
+            "record_id": "ARCHIVE-20260920-0002",
+            "relay_message": "Created Personal Archive record for TestCo toaster (Archive ID: ARCHIVE-20260920-0002).",
             "facts": {"model": "TEST-123"},
             "evidence": [],
         }
@@ -109,11 +109,12 @@ class IsolationContractTests(unittest.TestCase):
 
     def test_fabricated_id_is_rejected(self):
         for bad_id in (
-            "PA-2026-09-20-0001",  # extra dashes
-            "PA-toaster-1",        # descriptive slug
-            "PA-0001",             # missing date
-            "12345",               # raw number
-            "HA-20260920-0001",    # old prefix rejected
+            "ARCHIVE-2026-09-20-0001",  # extra dashes
+            "ARCHIVE-toaster-1",        # descriptive slug
+            "ARCHIVE-0001",             # missing date
+            "12345",                    # raw number
+            "PA-20260920-0001",         # obsolete prefix rejected
+            "HA-20260920-0001",         # older prefix rejected
         ):
             with self.subTest(bad_id=bad_id):
                 envelope = {
@@ -127,13 +128,19 @@ class IsolationContractTests(unittest.TestCase):
                     validate_envelope(envelope)
 
     def test_fabricated_attachment_id_is_rejected(self):
-        for bad_aid in ("PAA-photo-1", "HAA-20260920-0001"):
+        for bad_aid in (
+            "ARCHIVE-ATTACH-photo-1",
+            "ARCHIVE-ATT-20260920-0001",
+            "PAA-20260920-0001",
+            "HAA-20260920-0001",
+            "ARCHIVE-20260920-0001",
+        ):
             with self.subTest(bad_aid=bad_aid):
                 envelope = {
                     "ok": True,
                     "source": "personal-archive",
                     "status": "found",
-                    "record_id": "PA-20260920-0001",
+                    "record_id": "ARCHIVE-20260920-0001",
                     "relay_message": "Record found.",
                     "evidence": [{"attachment_id": bad_aid, "fact": "model"}],
                 }
@@ -146,7 +153,7 @@ class IsolationContractTests(unittest.TestCase):
                 "ok": True,
                 "source": "main",  # wrong source (expected 'personal-archive')
                 "status": "found",
-                "record_id": "PA-20260920-0001",
+                "record_id": "ARCHIVE-20260920-0001",
                 "relay_message": "Msg",
             })
         with self.assertRaises(ValueError):
@@ -154,7 +161,7 @@ class IsolationContractTests(unittest.TestCase):
                 "ok": True,
                 "source": "home-archive",  # obsolete source rejected
                 "status": "found",
-                "record_id": "PA-20260920-0001",
+                "record_id": "ARCHIVE-20260920-0001",
                 "relay_message": "Msg",
             })
         with self.assertRaises(ValueError):
@@ -162,7 +169,7 @@ class IsolationContractTests(unittest.TestCase):
                 "ok": True,
                 "source": "personal-archive",
                 "status": "unknown_status",
-                "record_id": "PA-20260920-0001",
+                "record_id": "ARCHIVE-20260920-0001",
                 "relay_message": "Msg",
             })
 

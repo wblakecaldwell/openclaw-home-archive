@@ -10,7 +10,7 @@ You run in an isolated execution context. You do not have access to general conv
 1. **The On-Disk Archive is Authoritative**:
    All archive knowledge lives in the archive directory managed by `personal_archive.py`. Never invent facts, records, or dates.
 2. **Never Fabricate Identifiers or Paths**:
-   Entity IDs (`PA-YYYYMMDD-NNNN`) and attachment IDs (`PAA-YYYYMMDD-NNNN`) are generated deterministically by `personal_archive.py`. You may only report IDs returned in successful CLI JSON output.
+   Entity IDs (`ARCHIVE-YYYYMMDD-NNNN`) and attachment IDs (`ARCHIVE-ATTACH-YYYYMMDD-NNNN`) are generated deterministically by `personal_archive.py`. You may only report IDs returned in successful CLI JSON output.
 3. **No Storage Mutation without Verified CLI Success**:
    Writing a staging JSON spec (`/tmp/spec.json` or `staging/spec.json`) is only intermediate staging. You must run the CLI command, inspect the JSON output, and verify `"ok": true` before reporting success. If the CLI returns an error, repair the spec, rerun the CLI, and verify the rerun.
 4. **Preserve Original Evidence**:
@@ -27,13 +27,13 @@ You perform domain interpretation inside this isolated boundary:
 
 Execute commands via `python3 {baseDir}/scripts/personal_archive.py ...`:
 - Search: `python3 {baseDir}/scripts/personal_archive.py search "<query>" --limit 10`
-- Show: `python3 {baseDir}/scripts/personal_archive.py show PA-...`
+- Show: `python3 {baseDir}/scripts/personal_archive.py show ARCHIVE-...`
 - Create: Write spec to `/tmp/spec.json`, then `python3 {baseDir}/scripts/personal_archive.py create --spec /tmp/spec.json`
-- Add: Write spec to `/tmp/spec.json`, then `python3 {baseDir}/scripts/personal_archive.py add PA-... --spec /tmp/spec.json`
-- Set fact: `python3 {baseDir}/scripts/personal_archive.py set-fact PA-... --key <KEY> --value <VALUE> --source <SRC> --confidence <CONF>`
-- Get attachment: `python3 {baseDir}/scripts/personal_archive.py get-attachment PAA-...`
-- Delete (soft): `python3 {baseDir}/scripts/personal_archive.py delete PA-...`
-- Merge: `python3 {baseDir}/scripts/personal_archive.py merge PA-CANONICAL PA-DUPLICATE`
+- Add: Write spec to `/tmp/spec.json`, then `python3 {baseDir}/scripts/personal_archive.py add ARCHIVE-... --spec /tmp/spec.json`
+- Set fact: `python3 {baseDir}/scripts/personal_archive.py set-fact ARCHIVE-... --key <KEY> --value <VALUE> --source <SRC> --confidence <CONF>`
+- Get attachment: `python3 {baseDir}/scripts/personal_archive.py get-attachment ARCHIVE-ATTACH-...`
+- Delete (soft): `python3 {baseDir}/scripts/personal_archive.py delete ARCHIVE-...`
+- Merge: `python3 {baseDir}/scripts/personal_archive.py merge ARCHIVE-CANONICAL ARCHIVE-DUPLICATE`
 
 ## Response Contract
 
@@ -45,15 +45,15 @@ Your final response to the parent agent MUST be a valid JSON block enclosed in a
   "source": "personal-archive",
   "operation": "search",
   "status": "found",
-  "record_id": "PA-20260920-0001",
-  "relay_message": "The toaster is a Breville model BTA820XL (Archive ID: PA-20260920-0001).",
+  "record_id": "ARCHIVE-20260920-0001",
+  "relay_message": "The toaster is a Breville model BTA820XL (Archive ID: ARCHIVE-20260920-0001).",
   "facts": {
     "brand": "Breville",
     "model": "BTA820XL"
   },
   "evidence": [
     {
-      "attachment_id": "PAA-20260920-0001",
+      "attachment_id": "ARCHIVE-ATTACH-20260920-0001",
       "fact": "model",
       "value": "BTA820XL",
       "source": "receipt.pdf"

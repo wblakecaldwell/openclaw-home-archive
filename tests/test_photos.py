@@ -6,6 +6,7 @@ from tests.support import ArchiveTestCase
 class PhotosTests(ArchiveTestCase):
     def setUp(self):
         super().setUp()
+        self.patchers = {}
         for name, value in (
             ("photos_ok", (True, "Mock Photos")),
             ("ensure_album", "test-album"),
@@ -16,6 +17,7 @@ class PhotosTests(ArchiveTestCase):
             ("del_photos", None),
         ):
             patcher = patch.object(self.archive, name, return_value=value)
+            self.patchers[name] = patcher
             setattr(self, name, patcher.start())
             self.addCleanup(patcher.stop)
 
@@ -91,3 +93,23 @@ class PhotosTests(ArchiveTestCase):
         self.assertEqual(self.archive.load(record["id"]), record)
         self.del_photos.assert_not_called()
         self.import_photo.assert_not_called()
+
+    def test_photos_uses_canonical_attachment_id(self):
+        record = self.photo_record("photo.jpg")
+        aid = record["attachments"][0]["id"]
+        self.assertTrue(self.archive.is_attachment_id(aid))
+        self.assertTrue(aid.startswith("ARCHIVE-ATTACH-"))
+
+        # psync queries find_photo with canonical attachment ID
+        self.archive.psync(False)
+        self.find_photo.assert_called_with(aid)
+
+        # find_photo requires canonical attachment ID
+        self.patchers["find_photo"].stop()
+        try:
+            for bad_id in ("ARCHIVE-ATT-20260920-0001", "PAA-20260920-0001", "ARCHIVE-20260920-0001"):
+                with self.assertRaises(ValueError):
+                    self.archive.find_photo(bad_id)
+        finally:
+            self.patchers["find_photo"].start()
+

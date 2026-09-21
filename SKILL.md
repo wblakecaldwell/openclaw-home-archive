@@ -25,20 +25,20 @@ Domain interpretation belongs here in `archivist`:
 - Assign provenance (`source=user` or attachment basename) and confidence.
 
 ## Rule
-Never manually mutate archive files. Use `python3 {baseDir}/scripts/personal_archive.py ...`. The CLI owns IDs, atomic writes, hashes, event history, dedupe, soft deletion, merges, and Photos reconciliation. Never fabricate `PA-...` or `PAA-...` identifiers. Every mutation requires parsing CLI JSON output and verifying `ok: true`.
+Never manually mutate archive files. Use `python3 {baseDir}/scripts/personal_archive.py ...`. The CLI owns IDs, atomic writes, hashes, event history, dedupe, soft deletion, merges, and Photos reconciliation. Never fabricate `ARCHIVE-...` or `ARCHIVE-ATTACH-...` identifiers. Every mutation requires parsing CLI JSON output and verifying `ok: true`.
 
 ## Ingest
 Inspect all supplied attachments. Extract useful durable facts only (brand/model/serial, people/business/contact info, dates, warranty, parts, dimensions, price, invoice/receipt IDs). Every fact needs provenance: `source=user` for explicit user statements or the attachment basename for extracted facts. Prefer omission to guessing. Search before adding when the message may refer to an existing entity.
 
-Create with a temporary JSON spec: `python3 {baseDir}/scripts/personal_archive.py create --spec /tmp/spec.json`. Add later evidence with `... add PA-... --spec /tmp/spec.json`. Spec fields: `title`, `summary`, `user_text`, optional `event_date`, `facts` array (`key`,`value`,`source`,`confidence`), `attachments` array (`path`,`role`,`description`, optional `publish_to_photos`), and `keywords`. Image attachments publish to Photos by default.
+Create with a temporary JSON spec: `python3 {baseDir}/scripts/personal_archive.py create --spec /tmp/spec.json`. Add later evidence with `... add ARCHIVE-... --spec /tmp/spec.json`. Spec fields: `title`, `summary`, `user_text`, optional `event_date`, `facts` array (`key`,`value`,`source`,`confidence`), `attachments` array (`path`,`role`,`description`, optional `publish_to_photos`), and `keywords`. Image attachments publish to Photos by default.
 
-Corrections: `... set-fact PA-... --key KEY --value VALUE --source user --confidence high`. Remove fact: `... remove-fact PA-... --key KEY`. Remove attachment: `... remove-attachment PAA-...`. Soft-delete record: `... delete PA-...`. Merge duplicates: `... merge PA-CANONICAL PA-DUPLICATE`. Reversible operations need no confirmation; report what changed. Never permanently purge originals without explicit confirmation immediately before destruction.
+Corrections: `... set-fact ARCHIVE-... --key KEY --value VALUE --source user --confidence high`. Remove fact: `... remove-fact ARCHIVE-... --key KEY`. Remove attachment: `... remove-attachment ARCHIVE-ATTACH-...`. Soft-delete record: `... delete ARCHIVE-...`. Merge duplicates: `... merge ARCHIVE-CANONICAL ARCHIVE-DUPLICATE`. Reversible operations need no confirmation; report what changed. Never permanently purge originals without explicit confirmation immediately before destruction.
 
 ## Recall
-Search: `... search "query" --limit 10`. Show record: `... show PA-...`. Resolve original attachment: `... get-attachment PAA-...`. When asked to show/send an artifact, return the actual original through the channel media/file mechanism, not just a description.
+Search: `... search "query" --limit 10`. Show record: `... show ARCHIVE-...`. Resolve original attachment: `... get-attachment ARCHIVE-ATTACH-...`. When asked to show/send an artifact, return the actual original through the channel media/file mechanism, not just a description.
 
 ## Photos
-Regular album name: `Personal Archive`. Metadata is generated from archive state and includes title, caption, useful keywords, entity ID, and attachment ID. Normal reconcile: `... photos-sync`; preview with `--dry-run`. Disaster rebuild preview: `... photos-rebuild --dry-run`. Real rebuild requires explicit confirmation, then `... photos-rebuild --confirm`. The Photos deletion code may only touch assets carrying a `PAA-...` keyword. Photos failure must never roll back authoritative archive ingestion.
+Regular album name: `Personal Archive`. Metadata is generated from archive state and includes title, caption, useful keywords, entity ID, and attachment ID. Normal reconcile: `... photos-sync`; preview with `--dry-run`. Disaster rebuild preview: `... photos-rebuild --dry-run`. Real rebuild requires explicit confirmation, then `... photos-rebuild --confirm`. The Photos deletion code may only touch assets carrying an `ARCHIVE-ATTACH-...` keyword. Photos failure must never roll back authoritative archive ingestion.
 
 ## Response Contract
 Your final response to the parent agent MUST include a standard JSON response envelope enclosed in a ```json code block:
@@ -48,11 +48,11 @@ Your final response to the parent agent MUST include a standard JSON response en
   "source": "personal-archive",
   "operation": "search",
   "status": "found",
-  "record_id": "PA-20260920-0001",
-  "relay_message": "The toaster is a Breville model BTA820XL (Archive ID: PA-20260920-0001).",
+  "record_id": "ARCHIVE-20260920-0001",
+  "relay_message": "The toaster is a Breville model BTA820XL (Archive ID: ARCHIVE-20260920-0001).",
   "facts": { "brand": "Breville", "model": "BTA820XL" },
   "evidence": [
-    { "attachment_id": "PAA-20260920-0001", "fact": "model", "value": "BTA820XL", "source": "receipt.pdf" }
+    { "attachment_id": "ARCHIVE-ATTACH-20260920-0001", "fact": "model", "value": "BTA820XL", "source": "receipt.pdf" }
   ]
 }
 ```

@@ -21,13 +21,14 @@ class CLITests(ArchiveTestCase):
         )
         result = self.cli("create", "--spec", spec)
         entity = result["record"]["id"]
-        self.assertRegex(entity, r"^PA-\d{8}-\d{4}$")
+        self.assertRegex(entity, r"^ARCHIVE-\d{8}-\d{4}$")
         persisted = json.loads(
             (self.root / "records" / entity / "metadata.json").read_text()
         )
         self.assertEqual(self.cli("show", entity)["record"], persisted)
         self.assertEqual(self.cli("search", "TestCo")["results"][0]["id"], entity)
         aid = result["attachments_added"][0]["id"]
+        self.assertRegex(aid, r"^ARCHIVE-ATTACH-\d{8}-\d{4}$")
         attachment = self.cli("get-attachment", aid)
         path = Path(attachment["path"])
         self.assertEqual(path.parent, self.root / "records" / entity / "attachments")
@@ -51,9 +52,16 @@ class CLITests(ArchiveTestCase):
 
     def test_nonexistent_identifiers_fail(self):
         for args in (
-            ("show", "PA-19990101-9999"),
-            ("get-attachment", "PAA-19990101-9999"),
-            ("delete", "PA-19990101-9999"),
+            ("show", "ARCHIVE-19990101-9999"),
+            ("get-attachment", "ARCHIVE-ATTACH-19990101-9999"),
+            ("delete", "ARCHIVE-19990101-9999"),
+            ("show", "PA-20260920-0001"),
+            ("get-attachment", "PAA-20260920-0001"),
+            ("delete", "PA-20260920-0001"),
+            ("get-attachment", "ARCHIVE-ATT-19990101-9999"),
+            ("get-attachment", "ARCHIVE-ATT-20260920-0001"),
+            ("remove-attachment", "ARCHIVE-ATT-20260920-0001"),
+            ("remove-attachment", "PAA-20260920-0001"),
         ):
             with self.subTest(args=args):
                 self.assertIn("error", self.cli(*args, ok=False))

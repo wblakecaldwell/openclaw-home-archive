@@ -59,12 +59,12 @@ class FactTests(ArchiveTestCase):
 
     def test_photo_metadata_contains_durable_identifiers(self):
         record = {
-            "id": "PA-20260920-0001",
+            "id": "ARCHIVE-20260920-0001",
             "title": "TestCo toaster",
             "keywords": ["kitchen", "kitchen"],
             "facts": [{"key": "model", "value": "TEST-123"}],
         }
-        attachment = {"id": "PAA-20260920-0001", "role": "Model label"}
+        attachment = {"id": "ARCHIVE-ATTACH-20260920-0001", "role": "Model label"}
         title, caption, keywords = self.archive.photo_meta(record, attachment)
         self.assertEqual(title, "Model label")
         for identifier in (record["id"], attachment["id"]):

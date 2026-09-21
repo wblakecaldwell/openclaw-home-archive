@@ -12,15 +12,15 @@ class ArchiveTests(ArchiveTestCase):
         before = self.snapshot()
         self.archive.init()
         self.assertEqual(self.snapshot(), before)
-        self.assertEqual(entity, "PA-20260920-0001")
-        self.assertEqual(self.archive.next_id("entity"), "PA-20260920-0002")
+        self.assertEqual(entity, "ARCHIVE-20260920-0001")
+        self.assertEqual(self.archive.next_id("entity"), "ARCHIVE-20260920-0002")
 
     def test_id_sequences_are_separate_and_roll_over_daily(self):
-        self.assertEqual(self.archive.next_id("entity"), "PA-20260920-0001")
-        self.assertEqual(self.archive.next_id("attachment"), "PAA-20260920-0001")
+        self.assertEqual(self.archive.next_id("entity"), "ARCHIVE-20260920-0001")
+        self.assertEqual(self.archive.next_id("attachment"), "ARCHIVE-ATTACH-20260920-0001")
         with patch.object(self.archive, "today", return_value="2026-09-21"):
-            self.assertEqual(self.archive.next_id("entity"), "PA-20260921-0001")
-            self.assertEqual(self.archive.next_id("attachment"), "PAA-20260921-0001")
+            self.assertEqual(self.archive.next_id("entity"), "ARCHIVE-20260921-0001")
+            self.assertEqual(self.archive.next_id("attachment"), "ARCHIVE-ATTACH-20260921-0001")
 
     def test_create_persists_date_wording_and_views(self):
         record = self.create_record(
@@ -185,3 +185,39 @@ class ArchiveTests(ArchiveTestCase):
             result = self.archive.doctor()
             self.assertFalse(result["ok"])
             self.assertTrue(any("missing attachment" in p for p in result["problems"]))
+
+    def test_id_validation_and_type_distinction(self):
+        # Canonical formats accepted
+        self.assertTrue(self.archive.is_record_id("ARCHIVE-20260920-0001"))
+        self.assertTrue(self.archive.is_attachment_id("ARCHIVE-ATTACH-20260920-0001"))
+
+        # Strict cross-type rejection
+        self.assertFalse(self.archive.is_record_id("ARCHIVE-ATTACH-20260920-0001"))
+        self.assertFalse(self.archive.is_attachment_id("ARCHIVE-20260920-0001"))
+
+        # Obsolete and malformed prefixes rejected
+        for bad_record in (
+            "PA-20260920-0001",
+            "PAA-20260920-0001",
+            "ARCHIVE-ATT-20260920-0001",
+            "ARCHIVE-2026-09-20-0001",
+            "ARCHIVE-0001",
+            "ARCHIVE-ATTACH-20260920",
+        ):
+            with self.subTest(bad_record=bad_record):
+                self.assertFalse(self.archive.is_record_id(bad_record))
+                with self.assertRaises(ValueError):
+                    self.archive.load(bad_record)
+
+        for bad_att in (
+            "PAA-20260920-0001",
+            "PA-20260920-0001",
+            "ARCHIVE-ATT-20260920-0001",
+            "ARCHIVE-ATTACH-2026-09-20-0001",
+            "ARCHIVE-20260920-0001",
+        ):
+            with self.subTest(bad_att=bad_att):
+                self.assertFalse(self.archive.is_attachment_id(bad_att))
+                with self.assertRaises(ValueError):
+                    self.archive.find_att(bad_att)
+
