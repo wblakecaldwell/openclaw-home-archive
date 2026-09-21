@@ -39,7 +39,7 @@ def config_get(key):
         if res.returncode != 0:
             return None
     stdout = res.stdout.strip()
-    if not stdout:
+    if not stdout or "Config path is valid but unset" in stdout:
         return None
     try:
         return json.loads(stdout)

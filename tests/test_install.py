@@ -250,6 +250,78 @@ class InstallTests(unittest.TestCase):
         self.assertIn("[INFO]", res_info.stdout)
         self.assertIn("All Personal Archive integration checks passed", res_info.stdout)
 
+    def test_check_allow_agents_states(self):
+        # Setup passing installation baseline
+        self.install()
+        data = json.loads(self.config.read_text())
+        data["agents"] = {
+            "entries": {
+                "main": {
+                    "subagents": {
+                        "requireAgentId": True,
+                        "allowAgents": ["archivist"],
+                    },
+                    "skills": [],
+                },
+                "archivist": {
+                    "name": "Archivist",
+                    "workspace": "~/.openclaw/workspaces/archivist",
+                    "skills": ["personal-archive"],
+                    "tools": {
+                        "deny": ["group:sessions", "group:memory"],
+                    },
+                    "memory": {
+                        "search": {
+                            "rememberAcrossConversations": False,
+                        }
+                    },
+                    "subagents": {
+                        "allowAgents": [],
+                    },
+                },
+            }
+        }
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text(
+            "# Main Directives\n<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+            "archivist delegation directives\n<!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+        )
+
+        # 1. Authored list with archivist alongside other agents passes and preserves them
+        data["agents"]["entries"]["main"]["subagents"]["allowAgents"] = [
+            "researcher",
+            "coder",
+            "archivist",
+        ]
+        self.config.write_text(json.dumps(data))
+        res = self.install(args=("--check",), success=True)
+        self.assertIn("[PASS] main agent subagents.allowAgents includes 'archivist'", res.stdout)
+        # Verify check never modifies config
+        current_config = json.loads(self.config.read_text())
+        self.assertEqual(
+            current_config["agents"]["entries"]["main"]["subagents"]["allowAgents"],
+            ["researcher", "coder", "archivist"],
+        )
+
+        # 2. Authored list without archivist fails
+        data["agents"]["entries"]["main"]["subagents"]["allowAgents"] = ["researcher", "coder"]
+        self.config.write_text(json.dumps(data))
+        res = self.install(args=("--check",), success=False)
+        self.assertIn("[FAIL] main agent subagents.allowAgents includes 'archivist'", res.stdout)
+
+        # 3. Empty authored list fails
+        data["agents"]["entries"]["main"]["subagents"]["allowAgents"] = []
+        self.config.write_text(json.dumps(data))
+        res = self.install(args=("--check",), success=False)
+        self.assertIn("[FAIL] main agent subagents.allowAgents includes 'archivist'", res.stdout)
+
+        # 4. Unset allowAgents fails
+        del data["agents"]["entries"]["main"]["subagents"]["allowAgents"]
+        self.config.write_text(json.dumps(data))
+        res = self.install(args=("--check",), success=False)
+        self.assertIn("[FAIL] main agent subagents.allowAgents includes 'archivist'", res.stdout)
+
     def test_uninstall_removes_software_and_preserves_archive_and_config(self):
         # Setup archive with evidence
         archive = Path(self.env["PERSONAL_ARCHIVE_ROOT"])

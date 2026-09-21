@@ -79,38 +79,80 @@ openclaw config set agents.entries.archivist '{
 To enable `main` to orchestrate Personal Archive, configure these 3 required settings:
 
 ### 1. Allow Delegation to `archivist` (Preserving Existing Agents)
-Main must be permitted to spawn the `archivist` agent.
+Main must be permitted to spawn the `archivist` agent via an **explicit authored allowlist**.
 
-> **IMPORTANT**: `openclaw config set` replaces the entire array. It does **not** automatically merge.
+> **CRITICAL WARNING**: `openclaw config set` replaces the target array entirely; it does **not** automatically merge into existing entries.
 
-First, inspect your current list of allowed subagents:
+#### Step 1: Inspect the current setting
 ```bash
 openclaw config get agents.entries.main.subagents.allowAgents
 ```
 
-- **If the output is empty or unset (`[]` or `null`)**, run:
-  ```bash
-  openclaw config set agents.entries.main.subagents.allowAgents '["archivist"]' --strict-json
-  ```
+On a standard or fresh OpenClaw 2026.9.5 installation, you may see:
+```text
+Config path is valid but unset:
+agents.entries.main.subagents.allowAgents.
+The runtime default applies until you set an authored value...
+```
+**This is a completely normal state.** However, for Personal Archive, `main` requires an explicit authored allowlist containing `"archivist"`.
 
-- **If you already have allowed agents** (e.g. `["code-assistant"]`), preserve them and append `"archivist"`:
-  ```bash
-  openclaw config set agents.entries.main.subagents.allowAgents '["code-assistant", "archivist"]' --strict-json
-  ```
+#### Step 2: Configure based on the observed state
 
-*(Optional shortcut: you can safely merge programmatically using Python)*:
+1. **If the path is valid but UNSET**:
+   It is safe to initialize it directly with:
+   ```bash
+   openclaw config set agents.entries.main.subagents.allowAgents '["archivist"]' --strict-json
+   ```
+
+2. **If it is already an empty authored array (`[]`)**:
+   Set it to:
+   ```bash
+   openclaw config set agents.entries.main.subagents.allowAgents '["archivist"]' --strict-json
+   ```
+
+3. **If it already contains other agent IDs**:
+   **DO NOT** replace the array with `["archivist"]`. Preserve every existing entry and append `"archivist"`.
+   
+   For example, if your current setting is:
+   ```json
+   ["researcher", "coder"]
+   ```
+   update it to:
+   ```bash
+   openclaw config set agents.entries.main.subagents.allowAgents '["researcher", "coder", "archivist"]' --strict-json
+   ```
+
+4. **If `"archivist"` is already present**:
+   (e.g., `["archivist"]` or `["researcher", "archivist"]`), **make no change**.
+
+*(Optional shortcut: you can safely inspect and merge programmatically using Python)*:
 ```bash
 python3 -c '
 import subprocess, json
 res = subprocess.run(["openclaw", "config", "get", "agents.entries.main.subagents.allowAgents", "--json"], capture_output=True, text=True)
-try: agents = json.loads(res.stdout) if res.returncode == 0 else []
-except Exception: agents = []
-if not isinstance(agents, list): agents = []
-if "archivist" not in agents: agents.append("archivist")
+try:
+    stdout = res.stdout.strip()
+    agents = [] if ("Config path is valid but unset" in stdout or not stdout) else json.loads(stdout)
+except Exception:
+    agents = []
+if not isinstance(agents, list):
+    agents = []
+if "archivist" not in agents:
+    agents.append("archivist")
 subprocess.run(["openclaw", "config", "set", "agents.entries.main.subagents.allowAgents", json.dumps(agents), "--strict-json"], check=True)
 print("Updated allowAgents:", agents)
 '
 ```
+
+#### Step 3: Verify the setting
+After changing or confirming the setting, verify:
+```bash
+openclaw config get agents.entries.main.subagents.allowAgents
+```
+Confirm that `"archivist"` is present along with every pre-existing entry.
+
+#### Why we author this setting
+Personal Archive intentionally restricts main's explicit subagent allowlist so that it can delegate archive operations to the isolated `archivist` agent. Once an explicit allowlist exists, future subagents that main should be allowed to spawn must also be added while preserving existing entries.
 
 ### 2. Ensure Main Does NOT Have the `personal-archive` Skill Directly
 Main must never run `personal_archive.py` directly in its own conversational context. Inspect main's skills:
