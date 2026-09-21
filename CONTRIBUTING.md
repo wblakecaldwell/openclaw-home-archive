@@ -4,16 +4,16 @@ This project is experimental.
 
 ## Before committing
 
-1. Run `python3 -m py_compile scripts/home_archive.py`.
+1. Run `python3 -m py_compile scripts/personal_archive.py`.
 2. Run `python3 -m unittest discover -s tests -v`. Use only disposable test data,
-   never a real household archive, for additional manual checks.
+   never a real personal archive, for additional manual checks.
 3. Review `git diff --staged` for personal data, credentials, absolute user paths,
    message contents, logs, and archive attachments.
 4. Do not commit the configured `<archive-root>` directory or copies of it.
 
 ## Design principle
 
-The on-disk Home Archive is authoritative. External systems such as Apple Photos
+The on-disk Personal Archive is authoritative. External systems such as Apple Photos
 are projections and must be rebuildable from the archive.
 
 ## Automated tests
@@ -42,9 +42,11 @@ python3 -m unittest tests.test_archive.ArchiveTests.test_merge_with_self_is_reje
   Photos operations.
 - `test_install.py` runs the installer with a disposable home directory to verify
   replacement, failure handling, and preservation of external data and configuration.
+- `test_isolation_contract.py` validates response envelopes, security constraints,
+  leaf settings, and workspace provisioning.
 
 Each test creates and cleans up its own temporary directory. The shared helper in
-`tests/support.py` sets `HOME_ARCHIVE_ROOT` and calls `configure_root()` on a fresh
+`tests/support.py` sets `PERSONAL_ARCHIVE_ROOT` and calls `configure_root()` on a fresh
 script module, so all derived paths point to the temporary archive. CLI subprocesses receive the
 same explicit environment. Direct tests block the AppleScript boundary, and the
 subprocess helper allows only commands that do not invoke Photos.
@@ -53,7 +55,7 @@ Installer tests put a fake `openclaw` command on their subprocess PATH and use
 temporary config files. They verify the get/set contract without touching a real
 OpenClaw installation; live CLI compatibility remains a separate integration check.
 
-Create synthetic fixtures through the helper instead of adding household files to
+Create synthetic fixtures through the helper instead of adding personal files to
 the repository. Test observable outcomes: preserved bytes, persisted metadata,
 event history, and clear failures. For a bug fix, first add a test that fails on
 the old behavior, then make the smallest fix that satisfies the intended contract.

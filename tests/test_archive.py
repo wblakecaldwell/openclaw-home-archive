@@ -12,15 +12,15 @@ class ArchiveTests(ArchiveTestCase):
         before = self.snapshot()
         self.archive.init()
         self.assertEqual(self.snapshot(), before)
-        self.assertEqual(entity, "HA-20260920-0001")
-        self.assertEqual(self.archive.next_id("entity"), "HA-20260920-0002")
+        self.assertEqual(entity, "PA-20260920-0001")
+        self.assertEqual(self.archive.next_id("entity"), "PA-20260920-0002")
 
     def test_id_sequences_are_separate_and_roll_over_daily(self):
-        self.assertEqual(self.archive.next_id("entity"), "HA-20260920-0001")
-        self.assertEqual(self.archive.next_id("attachment"), "HAA-20260920-0001")
+        self.assertEqual(self.archive.next_id("entity"), "PA-20260920-0001")
+        self.assertEqual(self.archive.next_id("attachment"), "PAA-20260920-0001")
         with patch.object(self.archive, "today", return_value="2026-09-21"):
-            self.assertEqual(self.archive.next_id("entity"), "HA-20260921-0001")
-            self.assertEqual(self.archive.next_id("attachment"), "HAA-20260921-0001")
+            self.assertEqual(self.archive.next_id("entity"), "PA-20260921-0001")
+            self.assertEqual(self.archive.next_id("attachment"), "PAA-20260921-0001")
 
     def test_create_persists_date_wording_and_views(self):
         record = self.create_record(

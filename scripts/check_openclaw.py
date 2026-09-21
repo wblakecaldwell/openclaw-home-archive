@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only health and configuration check for OpenClaw Home Archive integration."""
+"""Read-only health and configuration check for OpenClaw Personal Archive integration."""
 
 import argparse
 import json
@@ -9,8 +9,8 @@ import shutil
 import subprocess
 import sys
 
-CONFIG_ROOT_KEY = "skills.entries.home-archive.env.HOME_ARCHIVE_ROOT"
-ROUTING_MARKER = "HOME ARCHIVE"
+CONFIG_ROOT_KEY = "skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT"
+ROUTING_MARKER = "PERSONAL ARCHIVE"
 
 
 def get_openclaw_dir():
@@ -58,10 +58,10 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
     skill_path = Path(skill_dir)
     skill_ok = (
         (skill_path / "SKILL.md").exists()
-        and (skill_path / "scripts/home_archive.py").exists()
-        and os.access(skill_path / "scripts/home_archive.py", os.X_OK)
+        and (skill_path / "scripts/personal_archive.py").exists()
+        and os.access(skill_path / "scripts/personal_archive.py", os.X_OK)
     )
-    results.append((f"Home Archive skill installed ({skill_dir})", skill_ok, "critical"))
+    results.append((f"Personal Archive skill installed ({skill_dir})", skill_ok, "critical"))
 
     # 3. Dedicated agent workspace provisioned and clean
     ws_path = Path(workspace_dir)
@@ -78,7 +78,7 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
 
     # 4. Archive root configured and exists
     configured_root = config_get(CONFIG_ROOT_KEY)
-    candidate_root = archive_root_arg or configured_root or os.environ.get("HOME_ARCHIVE_ROOT")
+    candidate_root = archive_root_arg or configured_root or os.environ.get("PERSONAL_ARCHIVE_ROOT")
     archive_dir_ok = False
     resolved_root = None
     if candidate_root and isinstance(candidate_root, str) and candidate_root.strip():
@@ -98,8 +98,8 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
     # 5. Archive doctor passes
     doctor_ok = False
     if archive_dir_ok and resolved_root and skill_ok:
-        script = skill_path / "scripts/home_archive.py"
-        env = dict(os.environ, HOME_ARCHIVE_ROOT=resolved_root)
+        script = skill_path / "scripts/personal_archive.py"
+        env = dict(os.environ, PERSONAL_ARCHIVE_ROOT=resolved_root)
         doc_res = subprocess.run(
             [sys.executable, str(script), "doctor"],
             env=env,
@@ -109,13 +109,13 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
         )
         if doc_res.returncode == 0:
             doctor_ok = True
-    results.append(("Home Archive doctor check passes", doctor_ok, "warn"))
+    results.append(("Personal Archive doctor check passes", doctor_ok, "warn"))
 
-    # 6. home-archive agent registered in OpenClaw config
-    agent = config_get("agents.entries.home-archive")
+    # 6. archivist agent registered in OpenClaw config
+    agent = config_get("agents.entries.archivist")
     agent_registered = isinstance(agent, dict)
     results.append(
-        ("home-archive agent registered in OpenClaw configuration", agent_registered, "critical")
+        ("archivist agent registered in OpenClaw configuration", agent_registered, "critical")
     )
 
     # 7. Agent workspace matches
@@ -124,13 +124,13 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
         agent_ws and (Path(os.path.expanduser(agent_ws)).resolve() == ws_path.resolve())
     )
     results.append(
-        (f"home-archive workspace points to dedicated directory", ws_match, "critical")
+        (f"archivist workspace points to dedicated directory", ws_match, "critical")
     )
 
-    # 8. Agent has home-archive skill
+    # 8. Agent has personal-archive skill
     skills = agent.get("skills") if isinstance(agent, dict) else None
-    has_skill = isinstance(skills, list) and "home-archive" in skills
-    results.append(("home-archive agent has 'home-archive' skill", has_skill, "critical"))
+    has_skill = isinstance(skills, list) and "personal-archive" in skills
+    results.append(("archivist agent has 'personal-archive' skill", has_skill, "critical"))
 
     # 9. Agent memory restrictions
     mem_ok = False
@@ -143,7 +143,7 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
             mem_ok = True
     results.append(
         (
-            "home-archive memory isolated (rememberAcrossConversations=false, group:memory denied)",
+            "archivist memory isolated (rememberAcrossConversations=false, group:memory denied)",
             mem_ok,
             "critical",
         )
@@ -153,7 +153,7 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
     tool_denies = agent.get("tools", {}).get("deny", []) if (isinstance(agent, dict) and isinstance(agent.get("tools"), dict)) else []
     session_tool_ok = "group:sessions" in tool_denies
     results.append(
-        ("home-archive session tools denied (group:sessions)", session_tool_ok, "critical")
+        ("archivist session tools denied (group:sessions)", session_tool_ok, "critical")
     )
 
     # 11. Leaf worker configuration
@@ -162,20 +162,20 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
     allow_subs = subagents_cfg.get("allowAgents")
     leaf_ok = (depth == 1) and (allow_subs == [])
     results.append(
-        ("home-archive configured as leaf agent (maxSpawnDepth=1, allowAgents=[])", leaf_ok, "critical")
+        ("archivist configured as leaf agent (maxSpawnDepth=1, allowAgents=[])", leaf_ok, "critical")
     )
 
-    # 12. Main agent does not directly execute home-archive skill
+    # 12. Main agent does not directly execute personal-archive skill
     main_skills = config_get("agents.entries.main.skills")
-    main_skill_clean = not (isinstance(main_skills, list) and "home-archive" in main_skills)
+    main_skill_clean = not (isinstance(main_skills, list) and "personal-archive" in main_skills)
     results.append(
-        ("main agent does not directly execute 'home-archive' skill", main_skill_clean, "critical")
+        ("main agent does not directly execute 'personal-archive' skill", main_skill_clean, "critical")
     )
 
-    # 13. Main agent delegation to home-archive allowed (REQUIRED)
+    # 13. Main agent delegation to archivist allowed (REQUIRED)
     main_allow = config_get("agents.entries.main.subagents.allowAgents")
-    has_allow = isinstance(main_allow, list) and ("home-archive" in main_allow)
-    results.append(("main agent subagents.allowAgents includes 'home-archive'", has_allow, "critical"))
+    has_allow = isinstance(main_allow, list) and ("archivist" in main_allow)
+    results.append(("main agent subagents.allowAgents includes 'archivist'", has_allow, "critical"))
 
     # 14. Main agent requireAgentId (recommended hardening)
     req_id = config_get("agents.entries.main.subagents.requireAgentId")
@@ -191,23 +191,23 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
     a2a = config_get("tools.agentToAgent.enabled")
     results.append(("Gateway tools.agentToAgent.enabled is false (recommended hardening)", a2a is False, "info"))
 
-    # 16. Active Memory plugin excludes home-archive
+    # 17. Active Memory plugin excludes archivist
     am_agents = config_get("plugins.entries.active-memory.config.agents")
     am_ok = True
-    if isinstance(am_agents, list) and "home-archive" in am_agents:
+    if isinstance(am_agents, list) and "archivist" in am_agents:
         am_ok = False
-    results.append(("Active Memory plugin excludes 'home-archive'", am_ok, "critical"))
+    results.append(("Active Memory plugin excludes 'archivist'", am_ok, "critical"))
 
-    # 17. Main workspace AGENTS.md has routing directives
+    # 18. Main workspace AGENTS.md has routing directives
     openclaw_dir = get_openclaw_dir()
     main_agents_file = openclaw_dir / "workspace/AGENTS.md"
     routing_found = False
     if main_agents_file.exists():
         text = main_agents_file.read_text()
-        if ROUTING_MARKER in text and "home-archive" in text:
+        if ROUTING_MARKER in text and "archivist" in text:
             routing_found = True
     results.append(
-        ("Main workspace AGENTS.md contains Home Archive routing directives", routing_found, "critical")
+        ("Main workspace AGENTS.md contains Personal Archive routing directives", routing_found, "critical")
     )
 
     # Evaluation
@@ -222,7 +222,7 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
     if summary_only:
         return 0 if all_critical_passed else 1
 
-    print("=== OpenClaw Home Archive Inspection ===")
+    print("=== OpenClaw Personal Archive Inspection ===")
     for desc, passed, severity in results:
         if passed:
             status = "[PASS]"
@@ -233,11 +233,11 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
         else:
             status = "[FAIL]"
         print(f"  {status} {desc}")
-    print("==========================================")
+    print("==============================================")
 
     if all_critical_passed:
-        print("All Home Archive integration checks passed.")
-        print("OpenClaw Home Archive integration is complete and verified.")
+        print("All Personal Archive integration checks passed.")
+        print("OpenClaw Personal Archive integration is complete and verified.")
         return 0
     else:
         print(f"\n{len(failures)} check(s) did not pass.", file=sys.stderr)
@@ -256,8 +256,8 @@ def main():
     parser.add_argument("--summary", action="store_true", help="Quiet summary exit code only")
     args = parser.parse_args()
 
-    skill_dir = args.skill_directory or str(get_openclaw_dir() / "workspace/skills/home-archive")
-    workspace_dir = args.workspace_directory or str(get_openclaw_dir() / "workspaces/home-archive")
+    skill_dir = args.skill_directory or str(get_openclaw_dir() / "workspace/skills/personal-archive")
+    workspace_dir = args.workspace_directory or str(get_openclaw_dir() / "workspaces/archivist")
 
     return check(args.archive_root, skill_dir, workspace_dir, summary_only=args.summary)
 

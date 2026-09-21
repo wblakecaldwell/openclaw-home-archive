@@ -19,11 +19,11 @@
   },
   skills: {
     entries: {
-      "home-archive": {
+      "personal-archive": {
         env: {
           // [VERIFIED IN REPO / STANDARD OPENCLAW KEY]:
           // Authoritative archive storage root outside Git.
-          HOME_ARCHIVE_ROOT: "~/Documents/OpenClaw/HomeArchive"
+          PERSONAL_ARCHIVE_ROOT: "~/Documents/OpenClaw/PersonalArchive"
         }
       }
     }
@@ -31,7 +31,7 @@
   plugins: {
     entries: {
       // [VERIFIED ON OPENCLAW 2026.9.5]: active-memory plugin is active and already scoped to:
-      // agents: ["main"], ensuring home-archive is completely excluded from memory injection.
+      // agents: ["main"], ensuring archivist is completely excluded from memory injection.
       "active-memory": {
         config: {
           agents: [

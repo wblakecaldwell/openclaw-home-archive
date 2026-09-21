@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Store household records and original evidence, with an optional Photos projection."""
+"""Store durable personal records and original evidence, with an optional Photos projection."""
 
 from __future__ import annotations
 
@@ -22,18 +22,18 @@ ROOT = RECORDS = TRASH = STATE = SEQ = None
 def configure_root():
     """Resolve required runtime configuration without choosing a fallback location."""
     global ROOT, RECORDS, TRASH, STATE, SEQ
-    value = os.environ.get("HOME_ARCHIVE_ROOT")
+    value = os.environ.get("PERSONAL_ARCHIVE_ROOT")
     if not value or not value.strip():
-        raise ValueError("No archive directory configured. Set HOME_ARCHIVE_ROOT.")
+        raise ValueError("No archive directory configured. Set PERSONAL_ARCHIVE_ROOT.")
     root = Path(os.path.expanduser(value))
     if not root.is_absolute() or "<archive-root>" in value:
-        raise ValueError("HOME_ARCHIVE_ROOT must be an absolute archive path.")
+        raise ValueError("PERSONAL_ARCHIVE_ROOT must be an absolute archive path.")
     ROOT = root
     RECORDS, TRASH, STATE = root / "records", root / "trash", root / "state"
     SEQ = STATE / "sequence.json"
 
 
-ALBUM = "Home Archive"
+ALBUM = "Personal Archive"
 IMAGE_EXTS = {
     ".jpg",
     ".jpeg",
@@ -103,7 +103,7 @@ def init():
         atomic_json(SEQ, {"date": today(), "entity": 0, "attachment": 0})
     if not (ROOT / "README.md").exists():
         (ROOT / "README.md").write_text(
-            "# Home Archive\n\nManaged by the OpenClaw Home Archive skill.\n"
+            "# Personal Archive\n\nManaged by OpenClaw Personal Archive.\n"
         )
     return {"ok": True, "root": str(ROOT)}
 
@@ -117,7 +117,7 @@ def next_id(kind):
         st = {"date": today(), "entity": 0, "attachment": 0}
     st[kind] = int(st.get(kind, 0)) + 1
     atomic_json(SEQ, st)
-    return f"{'HA' if kind=='entity' else 'HAA'}-{d}-{st[kind]:04d}"
+    return f"{'PA' if kind=='entity' else 'PAA'}-{d}-{st[kind]:04d}"
 
 
 def rdir(e):
@@ -222,7 +222,7 @@ def add_fact(m, f):
 def known_hashes():
     """Index stored attachment hashes, including inactive and deleted records."""
     o = {}
-    for p in RECORDS.glob("HA-*/metadata.json"):
+    for p in RECORDS.glob("PA-*/metadata.json"):
         try:
             m = json.loads(p.read_text())
             for a in m.get("attachments", []):
@@ -366,7 +366,7 @@ def search(q, limit):
     """Rank non-deleted records by lexical matches and return bounded results."""
     terms = re.findall(r"[a-z0-9][a-z0-9._@+-]*", q.lower())
     out = []
-    for p in RECORDS.glob("HA-*/metadata.json"):
+    for p in RECORDS.glob("PA-*/metadata.json"):
         try:
             m = json.loads(p.read_text())
         except:
@@ -404,7 +404,7 @@ def search(q, limit):
 
 def find_att(aid):
     """Find attachment metadata, including inactive or soft-deleted evidence."""
-    for p in RECORDS.glob("HA-*/metadata.json"):
+    for p in RECORDS.glob("PA-*/metadata.json"):
         m = json.loads(p.read_text())
         for a in m.get("attachments", []):
             if a["id"] == aid:
@@ -554,11 +554,11 @@ def photos_ok():
 
 
 def ensure_album():
-    """Create the Home Archive album if missing and return its Photos ID."""
+    """Create the Personal Archive album if missing and return its Photos ID."""
     return osa(
         """tell application "Photos"
-if not (exists album "Home Archive") then make new album named "Home Archive"
-return id of album "Home Archive"
+if not (exists album "Personal Archive") then make new album named "Personal Archive"
+return id of album "Personal Archive"
 end tell
 """
     )
@@ -588,10 +588,10 @@ def photo_meta(m, a):
         + ". "
         + (" · ".join(vals) + ". " if vals else "")
         + a.get("description", "")
-        + f" Home Archive {m['id']} / {a['id']}."
+        + f" Personal Archive {m['id']} / {a['id']}."
     ).strip()
     kws = list(
-        dict.fromkeys(["Home Archive", m["id"], a["id"]] + m.get("keywords", []) + vals)
+        dict.fromkeys(["Personal Archive", m["id"], a["id"]] + m.get("keywords", []) + vals)
     )
     return title, desc, kws
 
@@ -641,7 +641,7 @@ def import_photo(path, title, desc, kws):
     sc = f"""on run argv
 set f to POSIX file (item 1 of argv)
 tell application "Photos"
-set imported to import {{f}} into album "Home Archive" skip check duplicates yes
+set imported to import {{f}} into album "Personal Archive" skip check duplicates yes
 if (count of imported) is 0 then error "Photos import returned no media item"
 set p to item 1 of imported
 set name of p to {json.dumps(title)}
@@ -656,7 +656,7 @@ end run
 
 def photo_items():
     """Yield active, publishable attachments from non-deleted records."""
-    for p in RECORDS.glob("HA-*/metadata.json"):
+    for p in RECORDS.glob("PA-*/metadata.json"):
         try:
             m = json.loads(p.read_text())
         except:
@@ -691,14 +691,14 @@ def psync(dry):
 
 
 def managed_ids():
-    """List Photos search hits carrying a keyword with the HAA- prefix."""
+    """List Photos search hits carrying a keyword with the PAA- prefix."""
     sc = """tell application "Photos"
-set hits to search for "Home Archive"
+set hits to search for "Personal Archive"
 set out to ""
 repeat with p in hits
 try
 repeat with k in (keywords of p)
-if (k as text) starts with "HAA-" then
+if (k as text) starts with "PAA-" then
 set out to out & (id of p) & linefeed
 exit repeat
 end if
@@ -760,7 +760,7 @@ def doctor():
     probs = []
     rc = ac = 0
     seen = {}
-    for p in RECORDS.glob("HA-*/metadata.json"):
+    for p in RECORDS.glob("PA-*/metadata.json"):
         rc += 1
         try:
             m = json.loads(p.read_text())
@@ -792,7 +792,7 @@ def doctor():
 
 def main():
     """Dispatch CLI commands and report execution errors as JSON."""
-    ap = argparse.ArgumentParser(prog="home-archive")
+    ap = argparse.ArgumentParser(prog="personal-archive")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init")
     p = sub.add_parser("create")

@@ -1,44 +1,44 @@
 # OpenClaw Configuration & Integration Guide
 
-This guide is the authoritative manual for integrating OpenClaw Home Archive into OpenClaw (version 2026.9.5+ on macOS).
+This guide is the authoritative manual for integrating OpenClaw Personal Archive into OpenClaw (version 2026.9.5+ on macOS).
 
-Home Archive relies on an isolated **two-agent architecture**:
-1. **Main agent (`main`)**: Interacts with the user, resolves conversation-dependent coreferences (e.g. *"it"* $\to$ *"the toaster we were just discussing"*), and delegates to the subagent using `sessions_spawn(agentId="home-archive", context="isolated", ...)`.
-2. **Dedicated agent (`home-archive`)**: Operates in an isolated workspace with no chat history, leaf restrictions, and denied memory/session tools. It executes deterministic CLI commands against the on-disk archive and returns a structured response envelope with a user-ready `relay_message`.
+Personal Archive relies on an isolated **two-agent architecture**:
+1. **Main agent (`main`)**: Interacts with the user, resolves conversation-dependent coreferences (e.g. *"it"* $\to$ *"the bike we were just discussing"*), and delegates to the subagent using `sessions_spawn(agentId="archivist", context="isolated", ...)`.
+2. **Dedicated agent (`archivist`)**: Operates in an isolated workspace with no chat history, leaf restrictions, and denied memory/session tools. It executes deterministic CLI commands against the on-disk archive and returns a structured response envelope with a user-ready `relay_message`.
 
 ---
 
 ## Prerequisites
 
-Before configuring OpenClaw, install Home Archive software artifacts and provision the dedicated workspace:
+Before configuring OpenClaw, install Personal Archive software artifacts and provision the dedicated workspace:
 
 ```bash
-git clone https://github.com/wblakecaldwell/openclaw-home-archive.git
-cd openclaw-home-archive
-./install.sh --archive-root ~/Documents/OpenClaw/HomeArchive
+git clone https://github.com/wblakecaldwell/openclaw-personal-archive.git
+cd openclaw-personal-archive
+./install.sh --archive-root ~/Documents/OpenClaw/PersonalArchive
 ```
 
 You can run `./install.sh --check` at any time to inspect what is currently configured and what remains.
 
 ---
 
-## Part 1: Home Archive-Owned Configuration
+## Part 1: Personal Archive-Owned Configuration
 
-These configuration entries belong strictly to Home Archive and do not alter main agent behavior or global OpenClaw policies.
+These configuration entries belong strictly to Personal Archive and do not alter main agent behavior or global OpenClaw policies.
 
 ### 1. Set Archive Location for the Skill
-Set the path to the durable household archive outside this repository:
+Set the path to the durable personal archive outside this repository:
 ```bash
-openclaw config set skills.entries.home-archive.env.HOME_ARCHIVE_ROOT "~/Documents/OpenClaw/HomeArchive"
+openclaw config set skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT "~/Documents/OpenClaw/PersonalArchive"
 ```
 
-### 2. Register the Dedicated `home-archive` Agent
+### 2. Register the Dedicated `archivist` Agent
 Register the isolated agent definition:
 ```bash
-openclaw config set agents.entries.home-archive '{
-  "name": "Home Archive Agent",
-  "description": "Isolated factual agent responsible for durable household records and evidence.",
-  "workspace": "~/.openclaw/workspaces/home-archive",
+openclaw config set agents.entries.archivist '{
+  "name": "Archivist",
+  "description": "Isolated factual agent responsible for durable personal records and evidence.",
+  "workspace": "~/.openclaw/workspaces/archivist",
   "tools": {
     "allow": ["read", "write", "exec", "image"],
     "deny": [
@@ -50,7 +50,7 @@ openclaw config set agents.entries.home-archive '{
       "apply_patch"
     ]
   },
-  "skills": ["home-archive"],
+  "skills": ["personal-archive"],
   "memory": {
     "search": {
       "rememberAcrossConversations": false
@@ -64,23 +64,23 @@ openclaw config set agents.entries.home-archive '{
 ```
 
 **Why each setting matters:**
-- `workspace`: Points to `~/.openclaw/workspaces/home-archive`, provisioned by `./install.sh`. It contains domain directives (`AGENTS.md`) and persona (`IDENTITY.md`), but strictly **no** conversational `MEMORY.md`.
+- `workspace`: Points to `~/.openclaw/workspaces/archivist`, provisioned by `./install.sh`. It contains domain directives (`AGENTS.md`) and persona (`IDENTITY.md`), but strictly **no** conversational `MEMORY.md`.
 - `tools.deny`:
   - `group:sessions` blocks `sessions_list` and session inspection tools, preventing the agent from seeing parent transcripts.
   - `group:memory` blocks access to memory embeddings and chat history summaries.
   - `web_search`, `browser`, `edit` prevent unneeded external interactions.
 - `memory.search.rememberAcrossConversations: false`: Disables cross-conversation memory searching for this agent.
 - `subagents.maxSpawnDepth: 1`: In OpenClaw's schema, `1` makes direct children leaves. Combined with `allowAgents: []`, this guarantees this subagent cannot spawn further subagents.
-- `skills: ["home-archive"]`: Grants permission to execute `home_archive.py`.
+- `skills: ["personal-archive"]`: Grants permission to execute `personal_archive.py`.
 
 ---
 
 ## Part 2: Required Main Agent Delegation & Routing
 
-To enable `main` to orchestrate Home Archive, configure these 3 required settings:
+To enable `main` to orchestrate Personal Archive, configure these 3 required settings:
 
-### 1. Allow Delegation to `home-archive` (Preserving Existing Agents)
-Main must be permitted to spawn the `home-archive` agent.
+### 1. Allow Delegation to `archivist` (Preserving Existing Agents)
+Main must be permitted to spawn the `archivist` agent.
 
 > **IMPORTANT**: `openclaw config set` replaces the entire array. It does **not** automatically merge.
 
@@ -91,12 +91,12 @@ openclaw config get agents.entries.main.subagents.allowAgents
 
 - **If the output is empty or unset (`[]` or `null`)**, run:
   ```bash
-  openclaw config set agents.entries.main.subagents.allowAgents '["home-archive"]' --strict-json
+  openclaw config set agents.entries.main.subagents.allowAgents '["archivist"]' --strict-json
   ```
 
-- **If you already have allowed agents** (e.g. `["code-assistant"]`), preserve them and append `"home-archive"`:
+- **If you already have allowed agents** (e.g. `["code-assistant"]`), preserve them and append `"archivist"`:
   ```bash
-  openclaw config set agents.entries.main.subagents.allowAgents '["code-assistant", "home-archive"]' --strict-json
+  openclaw config set agents.entries.main.subagents.allowAgents '["code-assistant", "archivist"]' --strict-json
   ```
 
 *(Optional shortcut: you can safely merge programmatically using Python)*:
@@ -107,18 +107,18 @@ res = subprocess.run(["openclaw", "config", "get", "agents.entries.main.subagent
 try: agents = json.loads(res.stdout) if res.returncode == 0 else []
 except Exception: agents = []
 if not isinstance(agents, list): agents = []
-if "home-archive" not in agents: agents.append("home-archive")
+if "archivist" not in agents: agents.append("archivist")
 subprocess.run(["openclaw", "config", "set", "agents.entries.main.subagents.allowAgents", json.dumps(agents), "--strict-json"], check=True)
 print("Updated allowAgents:", agents)
 '
 ```
 
-### 2. Ensure Main Does NOT Have the `home-archive` Skill Directly
-Main must never run `home_archive.py` directly in its own conversational context. Inspect main's skills:
+### 2. Ensure Main Does NOT Have the `personal-archive` Skill Directly
+Main must never run `personal_archive.py` directly in its own conversational context. Inspect main's skills:
 ```bash
 openclaw config get agents.entries.main.skills
 ```
-If `"home-archive"` is listed, remove it from the array using `openclaw config set agents.entries.main.skills ...`. If main has no other skills, set it to `[]`:
+If `"personal-archive"` is listed, remove it from the array using `openclaw config set agents.entries.main.skills ...`. If main has no other skills, set it to `[]`:
 ```bash
 openclaw config set agents.entries.main.skills '[]' --strict-json
 ```
@@ -127,33 +127,33 @@ openclaw config set agents.entries.main.skills '[]' --strict-json
 Open your main agent's instructions file (`~/.openclaw/workspace/AGENTS.md`) and append the following marked block:
 
 ```markdown
-<!-- BEGIN OPENCLAW HOME ARCHIVE MANAGED ROUTING DIRECTIVES -->
-## Home Archive Intent & Delegation
+<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->
+## Personal Archive Intent & Delegation
 
-When the user asks to save, update, search, view, or delete durable household information (appliances, receipts, manuals, warranties, contractors, repairs, dimensions, paint colors, home projects):
+When the user asks to save, update, search, view, or delete durable personal records and evidence (purchases, receipts, warranties, manuals, equipment, vehicle or bicycle records, contractors, repairs, business cards, documents, correspondence, projects, measurements, photos, belongings):
 
 ### 1. Intent Recognition & Delegation
-- Recognize Home Archive intent from user requests regarding durable household records.
+- Recognize Personal Archive intent from user requests regarding durable records or evidence preservation and retrieval (e.g., "Save this to my Personal Archive", "Archive this", "Save this receipt in my archive", "What does my archive say about my bike?", "Find the business card I archived", "Add this photo to the car record", "Delete that receipt from my archive").
 - Always delegate to the dedicated agent via `sessions_spawn`.
 - You MUST specify:
-  - `agentId`: `"home-archive"`
+  - `agentId`: `"archivist"`
   - `context`: `"isolated"` (MANDATORY: NEVER use `"fork"`)
-  - `taskName`: `"home-archive-task"`
+  - `taskName`: `"personal-archive-task"`
 
 ### 2. Conversational Antecedent Resolution (Coreference Only)
-- Before delegating, resolve ONLY conversational pronouns or references that depend on prior chat turns (e.g. `"When did we buy it?"` -> `"the toaster we were just discussing"`, or `"Here is that guy's card"` -> `"the deck contractor Joe"`).
+- Before delegating, resolve ONLY conversational pronouns or references that depend on prior chat turns (e.g. `"When did we buy it?"` -> `"the bike we were just discussing"`, or `"Here is that guy's card"` -> `"the deck contractor Joe"`).
 - Pass the user's original request text, the resolved antecedent, current local timestamp, and attached file paths.
 
 ### 3. What NOT to Do Before Delegation
 - **DO NOT perform fact extraction or domain interpretation in main**: Leave relative dates (e.g. "yesterday", "last week") in the user's original phrasing. Do not parse model numbers or inspect attachments in main.
-- **DO NOT answer Home Archive factual questions from conversational memory**: Factual household queries must always be answered by Home Archive records.
+- **DO NOT answer Personal Archive factual questions from conversational memory**: Factual archive queries must always be answered by Personal Archive records.
 
 ### 4. Relaying Results (No Memory Fallback)
-- Inspect the JSON response envelope returned by `home-archive`.
+- Inspect the JSON response envelope returned by `archivist`.
 - Extract `relay_message` and relay it directly to the user without alteration.
 - **CRITICAL**: Do NOT reconcile, supplement, or "correct" the result using conversational memory.
-- If `home-archive` returns `not_found` or an error, state that the record/fact is not in Home Archive. Do NOT fall back to chat history or conversational memory.
-<!-- END OPENCLAW HOME ARCHIVE MANAGED ROUTING DIRECTIVES -->
+- If `archivist` returns `not_found` or an error, state that the record/fact is not in Personal Archive. Do NOT fall back to chat history or conversational memory.
+<!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->
 ```
 
 - **To update later**: Replace the content between the `<!-- BEGIN ... -->` and `<!-- END ... -->` markers.
@@ -169,7 +169,7 @@ These settings provide additional isolation and defense-in-depth. They are **opt
 ```bash
 openclaw config set agents.entries.main.subagents.requireAgentId true --strict-json
 ```
-- **Why it is recommended**: While Home Archive routing directives already instruct the model to use `agentId: "home-archive"`, enabling `requireAgentId: true` prevents `main` from ever attempting unconstrained or anonymous subagent spawns.
+- **Why it is recommended**: While Personal Archive routing directives already instruct the model to use `agentId: "archivist"`, enabling `requireAgentId: true` prevents `main` from ever attempting unconstrained or anonymous subagent spawns.
 - **Global effect on other subagents**: Affects all subagents launched by `main`. Every `sessions_spawn` invocation across all workflows must now specify an explicit `agentId`. If your other workflows rely on default/anonymous subagent spawning, leave this unset or false.
 
 ### 2. Gateway Session Visibility (`tree`) (Recommended)
@@ -191,7 +191,20 @@ If you use the `active-memory` plugin:
 ```bash
 openclaw config get plugins.entries.active-memory.config.agents
 ```
-Ensure `"home-archive"` is **not** in this list (e.g. it should be `["main"]`). This ensures `active-memory` never injects chat summaries into Home Archive turns.
+Ensure `"archivist"` is **not** in this list (e.g. it should be `["main"]`). This ensures `active-memory` never injects chat summaries into Personal Archive turns.
+
+---
+
+## Multi-User & Family Topology Note
+
+Personal Archive is strictly single-tenant per Gateway instance. For multiple family members sharing one host machine, use separate OpenClaw profiles/Gateways:
+
+```
+OpenClaw Profile A (e.g. Alice)  --> main --> archivist --> PersonalArchive A
+OpenClaw Profile B (e.g. Bob)    --> main --> archivist --> PersonalArchive B
+```
+
+Each profile runs its own Gateway, with separate OpenClaw state, sessions, memory, credentials, and archive directory. Each profile uses the standard agent ID `archivist`. They may share the same underlying LLM server (e.g. LM Studio).
 
 ---
 
@@ -211,28 +224,28 @@ Then run the read-only integration health check:
 
 Expected output:
 ```
-=== OpenClaw Home Archive Inspection ===
+=== OpenClaw Personal Archive Inspection ===
   [PASS] OpenClaw CLI available on PATH
-  [PASS] Home Archive skill installed (~/.openclaw/workspace/skills/home-archive)
-  [PASS] Dedicated agent workspace clean (~/.openclaw/workspaces/home-archive)
-  [PASS] Archive directory exists and accessible (~/Documents/OpenClaw/HomeArchive)
-  [PASS] Home Archive doctor check passes
-  [PASS] home-archive agent registered in OpenClaw configuration
-  [PASS] home-archive workspace points to dedicated directory
-  [PASS] home-archive agent has 'home-archive' skill
-  [PASS] home-archive memory isolated (rememberAcrossConversations=false, group:memory denied)
-  [PASS] home-archive session tools denied (group:sessions)
-  [PASS] home-archive configured as leaf agent (maxSpawnDepth=1, allowAgents=[])
-  [PASS] main agent does not directly execute 'home-archive' skill
-  [PASS] main agent subagents.allowAgents includes 'home-archive'
+  [PASS] Personal Archive skill installed (~/.openclaw/workspace/skills/personal-archive)
+  [PASS] Dedicated agent workspace clean (~/.openclaw/workspaces/archivist)
+  [PASS] Archive directory exists and accessible (~/Documents/OpenClaw/PersonalArchive)
+  [PASS] Personal Archive doctor check passes
+  [PASS] archivist agent registered in OpenClaw configuration
+  [PASS] archivist workspace points to dedicated directory
+  [PASS] archivist agent has 'personal-archive' skill
+  [PASS] archivist memory isolated (rememberAcrossConversations=false, group:memory denied)
+  [PASS] archivist session tools denied (group:sessions)
+  [PASS] archivist configured as leaf agent (maxSpawnDepth=1, allowAgents=[])
+  [PASS] main agent does not directly execute 'personal-archive' skill
+  [PASS] main agent subagents.allowAgents includes 'archivist'
   [PASS] main agent subagents.requireAgentId is true (recommended hardening)
   [PASS] Gateway tools.sessions.visibility is 'tree' (recommended hardening)
   [PASS] Gateway tools.agentToAgent.enabled is false (recommended hardening)
-  [PASS] Active Memory plugin excludes 'home-archive'
-  [PASS] Main workspace AGENTS.md contains Home Archive routing directives
-==========================================
-All Home Archive integration checks passed.
-OpenClaw Home Archive integration is complete and verified.
+  [PASS] Active Memory plugin excludes 'archivist'
+  [PASS] Main workspace AGENTS.md contains Personal Archive routing directives
+==============================================
+All Personal Archive integration checks passed.
+OpenClaw Personal Archive integration is complete and verified.
 ```
 
 *(Note: If optional hardening settings in Part 3 are not enabled, they will be reported as `[INFO]` and will not prevent `./install.sh --check` from passing.)*
@@ -242,22 +255,22 @@ OpenClaw Home Archive integration is complete and verified.
 <a name="uninstall"></a>
 ## Uninstalling OpenClaw Integration
 
-To decommission Home Archive:
+To decommission Personal Archive:
 
 1. **Remove Software Artifacts**:
    ```bash
    ./install.sh --uninstall
    ```
-   *Removes `~/.openclaw/workspace/skills/home-archive` and `~/.openclaw/workspaces/home-archive`. **Never** touches or deletes your archive records at `~/Documents/OpenClaw/HomeArchive` or Apple Photos assets.*
+   *Removes `~/.openclaw/workspace/skills/personal-archive` and `~/.openclaw/workspaces/archivist`. **Never** touches or deletes your archive records at `~/Documents/OpenClaw/PersonalArchive` or Apple Photos assets.*
 
 2. **Remove Dedicated Agent & Skill Config**:
    ```bash
-   openclaw config unset agents.entries.home-archive
-   openclaw config unset skills.entries.home-archive
+   openclaw config unset agents.entries.archivist
+   openclaw config unset skills.entries.personal-archive
    ```
 
 3. **Remove from Main Agent Delegation**:
-   Inspect `openclaw config get agents.entries.main.subagents.allowAgents`. Remove `"home-archive"` from that array and update it with `openclaw config set`. If it was the only allowed subagent:
+   Inspect `openclaw config get agents.entries.main.subagents.allowAgents`. Remove `"archivist"` from that array and update it with `openclaw config set`. If it was the only allowed subagent:
    ```bash
    openclaw config set agents.entries.main.subagents.allowAgents '[]' --strict-json
    ```
@@ -265,9 +278,9 @@ To decommission Home Archive:
 4. **Remove Routing Directives from Main `AGENTS.md`**:
    Open `~/.openclaw/workspace/AGENTS.md` and delete the block between:
    ```markdown
-   <!-- BEGIN OPENCLAW HOME ARCHIVE MANAGED ROUTING DIRECTIVES -->
+   <!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->
    ...
-   <!-- END OPENCLAW HOME ARCHIVE MANAGED ROUTING DIRECTIVES -->
+   <!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->
    ```
 
 5. **Restart Gateway**:
@@ -275,4 +288,4 @@ To decommission Home Archive:
    openclaw gateway restart
    ```
 
-Your archive data at `~/Documents/OpenClaw/HomeArchive` remains completely intact and accessible via direct CLI commands (`python3 scripts/home_archive.py`).
+Your archive data at `~/Documents/OpenClaw/PersonalArchive` remains completely intact and accessible via direct CLI commands (`python3 scripts/personal_archive.py`).

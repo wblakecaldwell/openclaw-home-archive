@@ -14,32 +14,32 @@ PROJECT = Path(__file__).resolve().parents[1]
 
 class InstallTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="home-archive-install-test-")
+        temporary = tempfile.TemporaryDirectory(prefix="personal-archive-install-test-")
         self.addCleanup(temporary.cleanup)
         self.workspace = Path(temporary.name)
         self.user_home = self.workspace / "test home"
-        self.destination = self.user_home / ".openclaw/workspace/skills/home-archive"
-        self.agent_ws = self.user_home / ".openclaw/workspaces/home-archive"
+        self.destination = self.user_home / ".openclaw/workspace/skills/personal-archive"
+        self.agent_ws = self.user_home / ".openclaw/workspaces/archivist"
         self.source = self.workspace / "source checkout"
         (self.source / "scripts").mkdir(parents=True)
         for name in (
             "install.sh",
             "SKILL.md",
             "README.md",
-            "scripts/home_archive.py",
+            "scripts/personal_archive.py",
             "scripts/check_openclaw.py",
         ):
             shutil.copy2(PROJECT / name, self.source / name)
-        if (PROJECT / "openclaw/workspace-home-archive").exists():
-            shutil.copytree(PROJECT / "openclaw/workspace-home-archive", self.source / "openclaw/workspace-home-archive")
+        if (PROJECT / "openclaw/workspace-archivist").exists():
+            shutil.copytree(PROJECT / "openclaw/workspace-archivist", self.source / "openclaw/workspace-archivist")
 
-        self.archive_root = self.workspace / "household archive"
+        self.archive_root = self.workspace / "personal archive"
         self.archive_root.mkdir(parents=True, exist_ok=True)
         # HOME is supplied only to the child installer, never changed in this process.
         self.env = dict(
             os.environ,
             HOME=str(self.user_home),
-            HOME_ARCHIVE_ROOT=str(self.archive_root),
+            PERSONAL_ARCHIVE_ROOT=str(self.archive_root),
             PYTHONDONTWRITEBYTECODE="1",
         )
 
@@ -49,9 +49,9 @@ class InstallTests(unittest.TestCase):
                 {
                     "skills": {
                         "entries": {
-                            "home-archive": {
+                            "personal-archive": {
                                 "env": {
-                                    "HOME_ARCHIVE_ROOT": str(self.archive_root),
+                                    "PERSONAL_ARCHIVE_ROOT": str(self.archive_root),
                                 }
                             }
                         }
@@ -93,8 +93,8 @@ class InstallTests(unittest.TestCase):
         self.assertTrue(self.destination.exists())
         self.assertTrue((self.destination / "SKILL.md").exists())
         self.assertTrue((self.destination / "README.md").exists())
-        self.assertTrue((self.destination / "scripts/home_archive.py").exists())
-        self.assertTrue(os.access(self.destination / "scripts/home_archive.py", os.X_OK))
+        self.assertTrue((self.destination / "scripts/personal_archive.py").exists())
+        self.assertTrue(os.access(self.destination / "scripts/personal_archive.py", os.X_OK))
 
         # 2. Dedicated agent workspace provisioned
         self.assertTrue(self.agent_ws.exists())
@@ -115,14 +115,14 @@ class InstallTests(unittest.TestCase):
             for p in self.destination.rglob("*")
             if p.is_file()
         }
-        self.assertEqual(files, {"SKILL.md", "README.md", "scripts/home_archive.py"})
+        self.assertEqual(files, {"SKILL.md", "README.md", "scripts/personal_archive.py"})
         for name in files:
             self.assertEqual(
                 (self.destination / name).read_bytes(),
                 (self.source / name).read_bytes(),
             )
         self.assertTrue(
-            os.access(self.destination / "scripts/home_archive.py", os.X_OK)
+            os.access(self.destination / "scripts/personal_archive.py", os.X_OK)
         )
         self.assertEqual(list(self.destination.parent.iterdir()), [self.destination])
 
@@ -142,7 +142,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(main_agents.read_bytes(), agents_before)
 
     def test_existing_archive_is_preserved_never_deleted(self):
-        archive = Path(self.env["HOME_ARCHIVE_ROOT"])
+        archive = Path(self.env["PERSONAL_ARCHIVE_ROOT"])
         evidence = archive / "receipt.txt"
         evidence.write_bytes(b"Receipt evidence")
 
@@ -187,7 +187,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(main_agents.read_bytes(), agents_before)
 
     def test_check_reports_failure_on_missing_config_and_passes_when_configured(self):
-        # 1. Initially, home-archive agent is not registered and routing is missing
+        # 1. Initially, archivist agent is not registered and routing is missing
         res_fail = self.install(args=("--check",), success=False)
         self.assertIn("[FAIL]", res_fail.stdout)
         self.assertIn("docs/OPENCLAW_SETUP.md", res_fail.stderr)
@@ -202,13 +202,14 @@ class InstallTests(unittest.TestCase):
                 "main": {
                     "subagents": {
                         "requireAgentId": True,
-                        "allowAgents": ["home-archive"],
+                        "allowAgents": ["archivist"],
                     },
                     "skills": [],
                 },
-                "home-archive": {
-                    "workspace": "~/.openclaw/workspaces/home-archive",
-                    "skills": ["home-archive"],
+                "archivist": {
+                    "name": "Archivist",
+                    "workspace": "~/.openclaw/workspaces/archivist",
+                    "skills": ["personal-archive"],
                     "tools": {
                         "deny": ["group:sessions", "group:memory"],
                     },
@@ -233,14 +234,14 @@ class InstallTests(unittest.TestCase):
         main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
         main_agents.parent.mkdir(parents=True, exist_ok=True)
         main_agents.write_text(
-            "# Main Directives\n<!-- BEGIN OPENCLAW HOME ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
-            "home-archive delegation directives\n<!-- END OPENCLAW HOME ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+            "# Main Directives\n<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+            "archivist delegation directives\n<!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
         )
 
         # Now check must pass
         res_pass = self.install(args=("--check",), success=True)
         self.assertIn("[PASS]", res_pass.stdout)
-        self.assertIn("All Home Archive integration checks passed", res_pass.stdout)
+        self.assertIn("All Personal Archive integration checks passed", res_pass.stdout)
 
         # 4. Verify that omitting optional hardening (requireAgentId=False, default gateway settings) still passes check with [INFO]
         data["agents"]["entries"]["main"]["subagents"]["requireAgentId"] = False
@@ -248,11 +249,11 @@ class InstallTests(unittest.TestCase):
         self.config.write_text(json.dumps(data))
         res_info = self.install(args=("--check",), success=True)
         self.assertIn("[INFO]", res_info.stdout)
-        self.assertIn("All Home Archive integration checks passed", res_info.stdout)
+        self.assertIn("All Personal Archive integration checks passed", res_info.stdout)
 
     def test_uninstall_removes_software_and_preserves_archive_and_config(self):
         # Setup archive with evidence
-        archive = Path(self.env["HOME_ARCHIVE_ROOT"])
+        archive = Path(self.env["PERSONAL_ARCHIVE_ROOT"])
         evidence = archive / "warranty.pdf"
         evidence.write_bytes(b"Warranty evidence")
 

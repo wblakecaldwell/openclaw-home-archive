@@ -10,19 +10,19 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "home_archive.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "personal_archive.py"
 
 
 class ArchiveTestCase(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="home-archive-test-")
+        temporary = tempfile.TemporaryDirectory(prefix="personal-archive-test-")
         self.addCleanup(temporary.cleanup)
         self.workspace = Path(temporary.name)
         self.root = self.workspace / "archive"
-        self.env = dict(os.environ, HOME_ARCHIVE_ROOT=str(self.root))
+        self.env = dict(os.environ, PERSONAL_ARCHIVE_ROOT=str(self.root))
 
         # Configure a fresh module so every derived path uses this test's archive.
-        with patch.dict(os.environ, {"HOME_ARCHIVE_ROOT": str(self.root)}):
+        with patch.dict(os.environ, {"PERSONAL_ARCHIVE_ROOT": str(self.root)}):
             spec = importlib.util.spec_from_file_location("archive_under_test", SCRIPT)
             self.archive = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(self.archive)

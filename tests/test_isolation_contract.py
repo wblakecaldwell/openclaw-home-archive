@@ -1,4 +1,4 @@
-"""Tests for Home Archive isolation contract, envelope schema, and template hygiene."""
+"""Tests for Personal Archive isolation contract, envelope schema, and template hygiene."""
 
 import json
 import os
@@ -11,12 +11,12 @@ import tempfile
 import unittest
 
 PROJECT = Path(__file__).resolve().parents[1]
-ID_PATTERN = re.compile(r"^HA-\d{8}-\d{4}$")
-ATT_ID_PATTERN = re.compile(r"^HAA-\d{8}-\d{4}$")
+ID_PATTERN = re.compile(r"^PA-\d{8}-\d{4}$")
+ATT_ID_PATTERN = re.compile(r"^PAA-\d{8}-\d{4}$")
 
 
 def validate_envelope(envelope):
-    """Validate that a response envelope satisfies the Home Archive contract."""
+    """Validate that a response envelope satisfies the Personal Archive contract."""
     if not isinstance(envelope, dict):
         raise ValueError("Envelope must be a JSON object")
 
@@ -24,8 +24,8 @@ def validate_envelope(envelope):
         if required not in envelope:
             raise ValueError(f"Missing required envelope field: {required}")
 
-    if envelope["source"] != "home-archive":
-        raise ValueError(f"Invalid source: {envelope['source']}; expected 'home-archive'")
+    if envelope["source"] != "personal-archive":
+        raise ValueError(f"Invalid source: {envelope['source']}; expected 'personal-archive'")
 
     valid_statuses = {"found", "not_found", "mutated", "error"}
     if envelope["status"] not in valid_statuses:
@@ -53,15 +53,15 @@ class IsolationContractTests(unittest.TestCase):
     def test_found_envelope_validates(self):
         envelope = {
             "ok": True,
-            "source": "home-archive",
+            "source": "personal-archive",
             "operation": "search",
             "status": "found",
-            "record_id": "HA-20260920-0001",
-            "relay_message": "The toaster is a Breville BTA820XL (Archive ID: HA-20260920-0001).",
+            "record_id": "PA-20260920-0001",
+            "relay_message": "The toaster is a Breville BTA820XL (Archive ID: PA-20260920-0001).",
             "facts": {"brand": "Breville", "model": "BTA820XL"},
             "evidence": [
                 {
-                    "attachment_id": "HAA-20260920-0001",
+                    "attachment_id": "PAA-20260920-0001",
                     "fact": "model",
                     "value": "BTA820XL",
                     "source": "receipt.pdf",
@@ -73,11 +73,11 @@ class IsolationContractTests(unittest.TestCase):
     def test_not_found_envelope_validates(self):
         envelope = {
             "ok": True,
-            "source": "home-archive",
+            "source": "personal-archive",
             "operation": "search",
             "status": "not_found",
             "record_id": None,
-            "relay_message": "Home Archive does not have a record of the lawnmower model.",
+            "relay_message": "Personal Archive does not have a record of the lawnmower model.",
             "facts": {},
             "evidence": [],
         }
@@ -86,11 +86,11 @@ class IsolationContractTests(unittest.TestCase):
     def test_mutated_envelope_validates(self):
         envelope = {
             "ok": True,
-            "source": "home-archive",
+            "source": "personal-archive",
             "operation": "create",
             "status": "mutated",
-            "record_id": "HA-20260920-0002",
-            "relay_message": "Created Home Archive record for TestCo toaster (Archive ID: HA-20260920-0002).",
+            "record_id": "PA-20260920-0002",
+            "relay_message": "Created Personal Archive record for TestCo toaster (Archive ID: PA-20260920-0002).",
             "facts": {"model": "TEST-123"},
             "evidence": [],
         }
@@ -99,7 +99,7 @@ class IsolationContractTests(unittest.TestCase):
     def test_error_envelope_validates(self):
         envelope = {
             "ok": False,
-            "source": "home-archive",
+            "source": "personal-archive",
             "operation": "create",
             "status": "error",
             "error": "FileNotFoundError: /tmp/attachment.jpg",
@@ -109,15 +109,16 @@ class IsolationContractTests(unittest.TestCase):
 
     def test_fabricated_id_is_rejected(self):
         for bad_id in (
-            "HA-2026-09-20-0001",  # extra dashes
-            "HA-toaster-1",        # descriptive slug
-            "HA-0001",             # missing date
+            "PA-2026-09-20-0001",  # extra dashes
+            "PA-toaster-1",        # descriptive slug
+            "PA-0001",             # missing date
             "12345",               # raw number
+            "HA-20260920-0001",    # old prefix rejected
         ):
             with self.subTest(bad_id=bad_id):
                 envelope = {
                     "ok": True,
-                    "source": "home-archive",
+                    "source": "personal-archive",
                     "status": "found",
                     "record_id": bad_id,
                     "relay_message": "Here is the record.",
@@ -126,32 +127,42 @@ class IsolationContractTests(unittest.TestCase):
                     validate_envelope(envelope)
 
     def test_fabricated_attachment_id_is_rejected(self):
-        envelope = {
-            "ok": True,
-            "source": "home-archive",
-            "status": "found",
-            "record_id": "HA-20260920-0001",
-            "relay_message": "Record found.",
-            "evidence": [{"attachment_id": "HAA-photo-1", "fact": "model"}],
-        }
-        with self.assertRaises(ValueError):
-            validate_envelope(envelope)
+        for bad_aid in ("PAA-photo-1", "HAA-20260920-0001"):
+            with self.subTest(bad_aid=bad_aid):
+                envelope = {
+                    "ok": True,
+                    "source": "personal-archive",
+                    "status": "found",
+                    "record_id": "PA-20260920-0001",
+                    "relay_message": "Record found.",
+                    "evidence": [{"attachment_id": bad_aid, "fact": "model"}],
+                }
+                with self.assertRaises(ValueError):
+                    validate_envelope(envelope)
 
     def test_invalid_status_or_source_is_rejected(self):
         with self.assertRaises(ValueError):
             validate_envelope({
                 "ok": True,
-                "source": "main",  # wrong source (expected 'home-archive')
+                "source": "main",  # wrong source (expected 'personal-archive')
                 "status": "found",
-                "record_id": "HA-20260920-0001",
+                "record_id": "PA-20260920-0001",
                 "relay_message": "Msg",
             })
         with self.assertRaises(ValueError):
             validate_envelope({
                 "ok": True,
-                "source": "home-archive",
+                "source": "home-archive",  # obsolete source rejected
+                "status": "found",
+                "record_id": "PA-20260920-0001",
+                "relay_message": "Msg",
+            })
+        with self.assertRaises(ValueError):
+            validate_envelope({
+                "ok": True,
+                "source": "personal-archive",
                 "status": "unknown_status",
-                "record_id": "HA-20260920-0001",
+                "record_id": "PA-20260920-0001",
                 "relay_message": "Msg",
             })
 
@@ -169,7 +180,7 @@ class IsolationContractTests(unittest.TestCase):
             self.assertNotIn("API_KEY", content)
 
     def test_openclaw_templates_contain_required_security_constraints(self):
-        agent_cfg = (PROJECT / "openclaw/agent-home-archive.json5").read_text()
+        agent_cfg = (PROJECT / "openclaw/agent-archivist.json5").read_text()
         self.assertIn("group:sessions", agent_cfg)
         self.assertIn("group:memory", agent_cfg)
         self.assertIn("maxSpawnDepth", agent_cfg)
@@ -177,7 +188,7 @@ class IsolationContractTests(unittest.TestCase):
 
         main_patch = (PROJECT / "openclaw/agent-main-patch.json5").read_text()
         self.assertIn("requireAgentId", main_patch)
-        self.assertIn("home-archive", main_patch)
+        self.assertIn("archivist", main_patch)
 
         gateway_cfg = (PROJECT / "openclaw/gateway-config.json5").read_text()
         self.assertIn('"tree"', gateway_cfg)
@@ -188,8 +199,8 @@ class IsolationContractTests(unittest.TestCase):
             tmppath = Path(tmpdir)
             fake_home = tmppath / "home"
             fake_home.mkdir()
-            fake_dest = fake_home / ".openclaw/workspace/skills/home-archive"
-            fake_agent_ws = fake_home / ".openclaw/workspaces/home-archive"
+            fake_dest = fake_home / ".openclaw/workspace/skills/personal-archive"
+            fake_agent_ws = fake_home / ".openclaw/workspaces/archivist"
 
             fake_bin = tmppath / "bin"
             fake_bin.mkdir()
@@ -208,9 +219,9 @@ class IsolationContractTests(unittest.TestCase):
                     {
                         "skills": {
                             "entries": {
-                                "home-archive": {
+                                "personal-archive": {
                                     "env": {
-                                        "HOME_ARCHIVE_ROOT": str(tmppath / "archive"),
+                                        "PERSONAL_ARCHIVE_ROOT": str(tmppath / "archive"),
                                     }
                                 }
                             }
@@ -224,7 +235,7 @@ class IsolationContractTests(unittest.TestCase):
                 HOME=str(fake_home),
                 PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
                 TEST_OPENCLAW_CONFIG=str(config),
-                HOME_ARCHIVE_ROOT=str(tmppath / "archive"),
+                PERSONAL_ARCHIVE_ROOT=str(tmppath / "archive"),
                 PYTHONDONTWRITEBYTECODE="1",
             )
 
@@ -252,15 +263,14 @@ class IsolationContractTests(unittest.TestCase):
         readme = (PROJECT / "openclaw/README.md").read_text()
         self.assertNotIn("bak-*", readme, "README.md contains ambiguous wildcard in rollback commands")
 
-
     def test_inaccessible_archive_root_fails_deterministically(self):
         with tempfile.TemporaryDirectory(prefix="test-blocked-root-") as tmpdir:
             blocked_root = Path(tmpdir) / "blocked"
             blocked_root.mkdir(0o000)
             try:
                 result = subprocess.run(
-                    [sys.executable, str(PROJECT / "scripts/home_archive.py"), "search", "toaster"],
-                    env=dict(os.environ, HOME_ARCHIVE_ROOT=str(blocked_root), PYTHONDONTWRITEBYTECODE="1"),
+                    [sys.executable, str(PROJECT / "scripts/personal_archive.py"), "search", "toaster"],
+                    env=dict(os.environ, PERSONAL_ARCHIVE_ROOT=str(blocked_root), PYTHONDONTWRITEBYTECODE="1"),
                     capture_output=True,
                     text=True,
                     timeout=10,

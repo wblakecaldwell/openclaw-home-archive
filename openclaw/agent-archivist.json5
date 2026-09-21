@@ -1,7 +1,7 @@
-// OpenClaw Agent Definition: home-archive
+// OpenClaw Agent Definition: archivist
 // Location: ~/.openclaw/openclaw.json5 (under agents.entries)
 //
-// Purpose: Dedicated, isolated domain agent for durable household records and evidence.
+// Purpose: Dedicated, isolated domain agent for durable personal records and evidence.
 // This agent runs in its own workspace without access to conversational chat history,
 // dreaming summaries, or main agent memory files.
 //
@@ -11,11 +11,11 @@
 {
   agents: {
     entries: {
-      "home-archive": {
-        name: "Home Archive Agent",
-        description: "Isolated factual agent responsible for durable household records and evidence.",
+      "archivist": {
+        name: "Archivist",
+        description: "Isolated factual agent responsible for durable personal records and evidence.",
         // [VERIFIED ON OPENCLAW 2026.9.5]:
-        workspace: "~/.openclaw/workspaces/home-archive",
+        workspace: "~/.openclaw/workspaces/archivist",
         tools: {
           // [VERIFIED ON OPENCLAW 2026.9.5]: standard tool names
           allow: [
@@ -36,7 +36,7 @@
         },
         // [VERIFIED ON OPENCLAW 2026.9.5]: exclusive skill scope
         skills: [
-          "home-archive"
+          "personal-archive"
         ],
         memory: {
           search: {
@@ -45,8 +45,8 @@
           }
         },
         subagents: {
-          // [VERIFIED ON OPENCLAW 2026.9.5]: confirmed exact key 'maxSpawnDepth' (not 'maxDepth')
-          maxSpawnDepth: 0,
+          // [VERIFIED ON OPENCLAW 2026.9.5]: maxSpawnDepth=1 makes direct children leaf agents
+          maxSpawnDepth: 1,
           // [VERIFIED ON OPENCLAW 2026.9.5]: leaf worker cannot spawn any other subagent
           allowAgents: []
         }

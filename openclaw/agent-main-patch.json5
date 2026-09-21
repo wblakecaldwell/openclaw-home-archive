@@ -3,8 +3,8 @@
 //
 // Purpose: Configure subagent delegation constraints on the main agent.
 // - requireAgentId: true forces explicit target specification on every sessions_spawn call.
-// - allowAgents: ["home-archive"] restricts subagent delegation to the home-archive agent only.
-// - Note: Remove "home-archive" from main's skill list (skills) so main cannot execute the CLI directly.
+// - allowAgents: [...existing, "archivist"] preserves existing allowed agents and adds archivist.
+// - Note: Ensure "personal-archive" is NOT in main's skill list (skills) so main cannot execute the CLI directly.
 //
 // Verified Schema Note:
 // All keys verified against OpenClaw 2026.9.5 schema.
@@ -14,16 +14,16 @@
     entries: {
       "main": {
         subagents: {
-          // [VERIFIED ON OPENCLAW 2026.9.5]: forces explicit agentId on sessions_spawn
+          // [VERIFIED ON OPENCLAW 2026.9.5]: forces explicit agentId on sessions_spawn (optional hardening)
           requireAgentId: true,
-          // [VERIFIED ON OPENCLAW 2026.9.5]: restricts delegation to home-archive only
+          // [VERIFIED ON OPENCLAW 2026.9.5]: preserve existing allowed agents and add "archivist"
           allowAgents: [
-            "home-archive"
+            "archivist"
           ]
         }
-        // [VERIFIED ON OPENCLAW 2026.9.5]: remove "home-archive" from main's skills list
-        // so main's prompt does not load home-archive CLI execution instructions:
-        // skills: ["...other skills...", /* NOT home-archive */]
+        // [VERIFIED ON OPENCLAW 2026.9.5]: ensure "personal-archive" is NOT in main's skills list
+        // so main's prompt does not load personal-archive CLI execution instructions:
+        // skills: ["...other skills...", /* NOT personal-archive */]
       }
     }
   }

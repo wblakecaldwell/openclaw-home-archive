@@ -1,58 +1,58 @@
 ---
-name: home-archive
-description: Save, update, find, and return durable household records and attachments such as appliances, vehicles, contractors, repairs, receipts, manuals, and home projects.
+name: personal-archive
+description: Save, update, find, and return durable, evidence-backed personal records and attachments such as purchases, receipts, warranties, manuals, equipment, vehicles, bicycles, contractors, repairs, business cards, documents, correspondence, projects, measurements, photos, and belongings.
 metadata:
   openclaw:
     requires:
       bins: [python3]
 ---
-# Home Archive
+# Personal Archive
 
-Authoritative root: `<archive-root>`, the configured household archive directory outside this repository. Set `HOME_ARCHIVE_ROOT` in the environment used to run the CLI, including commands launched by OpenClaw. `<archive-root>` is a documentation placeholder; replace it with the chosen absolute path. Apple Photos is a rebuildable projection only.
+Authoritative root: `<archive-root>`, the configured personal archive directory outside this repository. Set `PERSONAL_ARCHIVE_ROOT` in the environment used to run the CLI, including commands launched by OpenClaw. `<archive-root>` is a documentation placeholder; replace it with the chosen absolute path (e.g. `~/Documents/OpenClaw/PersonalArchive`). Apple Photos is a rebuildable projection only.
 
 Persist the location in OpenClaw configuration under
-`skills.entries.home-archive.env.HOME_ARCHIVE_ROOT` (the installer handles setup).
-There is no default archive location. If configuration is missing, complete setup
-before attempting archive operations; never invent a location. Direct terminal and
-sandboxed invocations must receive the environment variable explicitly.
+`skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT` (the installer handles setup).
+If configuration is missing, complete setup before attempting archive operations;
+never invent a location. Direct terminal and sandboxed invocations must receive
+the environment variable explicitly.
 
 ## Execution Role & Boundary
-This skill is executed by the dedicated `home-archive` agent in an isolated subagent context (`context: "isolated"`). The main conversational agent routes household requests here and resolves conversation-dependent references (e.g. "it" -> "the toaster").
+This skill is executed by the dedicated `archivist` agent in an isolated subagent context (`context: "isolated"`). The main conversational agent routes personal archive requests here and resolves conversation-dependent references (e.g. "it" -> "the bike").
 
-Domain interpretation belongs here in `home-archive`:
+Domain interpretation belongs here in `archivist`:
 - Normalize relative dates ("today", "yesterday", "last week") against the invocation timestamp provided in the task into structured ISO calendar dates (`YYYY-MM-DD`). Preserve original user wording in notes/events.
 - Extract durable facts from user text and attachments.
 - Assign provenance (`source=user` or attachment basename) and confidence.
 
 ## Rule
-Never manually mutate archive files. Use `python3 {baseDir}/scripts/home_archive.py ...`. The CLI owns IDs, atomic writes, hashes, event history, dedupe, soft deletion, merges, and Photos reconciliation. Never fabricate `HA-...` or `HAA-...` identifiers. Every mutation requires parsing CLI JSON output and verifying `ok: true`.
+Never manually mutate archive files. Use `python3 {baseDir}/scripts/personal_archive.py ...`. The CLI owns IDs, atomic writes, hashes, event history, dedupe, soft deletion, merges, and Photos reconciliation. Never fabricate `PA-...` or `PAA-...` identifiers. Every mutation requires parsing CLI JSON output and verifying `ok: true`.
 
 ## Ingest
-Inspect all supplied attachments. Extract useful durable facts only (brand/model/serial, people/business/contact info, dates, warranty, parts, dimensions, paint, price, invoice/receipt IDs). Every fact needs provenance: `source=user` for explicit user statements or the attachment basename for extracted facts. Prefer omission to guessing. Search before adding when the message may refer to an existing entity.
+Inspect all supplied attachments. Extract useful durable facts only (brand/model/serial, people/business/contact info, dates, warranty, parts, dimensions, price, invoice/receipt IDs). Every fact needs provenance: `source=user` for explicit user statements or the attachment basename for extracted facts. Prefer omission to guessing. Search before adding when the message may refer to an existing entity.
 
-Create with a temporary JSON spec: `python3 {baseDir}/scripts/home_archive.py create --spec /tmp/spec.json`. Add later evidence with `... add HA-... --spec /tmp/spec.json`. Spec fields: `title`, `summary`, `user_text`, optional `event_date`, `facts` array (`key`,`value`,`source`,`confidence`), `attachments` array (`path`,`role`,`description`, optional `publish_to_photos`), and `keywords`. Image attachments publish to Photos by default.
+Create with a temporary JSON spec: `python3 {baseDir}/scripts/personal_archive.py create --spec /tmp/spec.json`. Add later evidence with `... add PA-... --spec /tmp/spec.json`. Spec fields: `title`, `summary`, `user_text`, optional `event_date`, `facts` array (`key`,`value`,`source`,`confidence`), `attachments` array (`path`,`role`,`description`, optional `publish_to_photos`), and `keywords`. Image attachments publish to Photos by default.
 
-Corrections: `... set-fact HA-... --key KEY --value VALUE --source user --confidence high`. Remove fact: `... remove-fact HA-... --key KEY`. Remove attachment: `... remove-attachment HAA-...`. Soft-delete record: `... delete HA-...`. Merge duplicates: `... merge HA-CANONICAL HA-DUPLICATE`. Reversible operations need no confirmation; report what changed. Never permanently purge originals without explicit confirmation immediately before destruction.
+Corrections: `... set-fact PA-... --key KEY --value VALUE --source user --confidence high`. Remove fact: `... remove-fact PA-... --key KEY`. Remove attachment: `... remove-attachment PAA-...`. Soft-delete record: `... delete PA-...`. Merge duplicates: `... merge PA-CANONICAL PA-DUPLICATE`. Reversible operations need no confirmation; report what changed. Never permanently purge originals without explicit confirmation immediately before destruction.
 
 ## Recall
-Search: `... search "query" --limit 10`. Show record: `... show HA-...`. Resolve original attachment: `... get-attachment HAA-...`. When asked to show/send an artifact, return the actual original through the channel media/file mechanism, not just a description.
+Search: `... search "query" --limit 10`. Show record: `... show PA-...`. Resolve original attachment: `... get-attachment PAA-...`. When asked to show/send an artifact, return the actual original through the channel media/file mechanism, not just a description.
 
 ## Photos
-Regular album name: `Home Archive`. Metadata is generated from archive state and includes title, caption, useful keywords, entity ID, and attachment ID. Normal reconcile: `... photos-sync`; preview with `--dry-run`. Disaster rebuild preview: `... photos-rebuild --dry-run`. Real rebuild requires explicit confirmation, then `... photos-rebuild --confirm`. The Photos deletion code may only touch assets carrying an `HAA-...` keyword. Photos failure must never roll back authoritative archive ingestion.
+Regular album name: `Personal Archive`. Metadata is generated from archive state and includes title, caption, useful keywords, entity ID, and attachment ID. Normal reconcile: `... photos-sync`; preview with `--dry-run`. Disaster rebuild preview: `... photos-rebuild --dry-run`. Real rebuild requires explicit confirmation, then `... photos-rebuild --confirm`. The Photos deletion code may only touch assets carrying a `PAA-...` keyword. Photos failure must never roll back authoritative archive ingestion.
 
 ## Response Contract
 Your final response to the parent agent MUST include a standard JSON response envelope enclosed in a ```json code block:
 ```json
 {
   "ok": true,
-  "source": "home-archive",
+  "source": "personal-archive",
   "operation": "search",
   "status": "found",
-  "record_id": "HA-20260920-0001",
-  "relay_message": "The household toaster is a Breville model BTA820XL (Archive ID: HA-20260920-0001).",
+  "record_id": "PA-20260920-0001",
+  "relay_message": "The toaster is a Breville model BTA820XL (Archive ID: PA-20260920-0001).",
   "facts": { "brand": "Breville", "model": "BTA820XL" },
   "evidence": [
-    { "attachment_id": "HAA-20260920-0001", "fact": "model", "value": "BTA820XL", "source": "receipt.pdf" }
+    { "attachment_id": "PAA-20260920-0001", "fact": "model", "value": "BTA820XL", "source": "receipt.pdf" }
   ]
 }
 ```

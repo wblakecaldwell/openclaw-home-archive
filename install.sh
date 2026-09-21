@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# install.sh — Installs and manages Home Archive software artifacts and dedicated agent workspace.
-# Home Archive does NOT automatically administer or rewrite OpenClaw configuration.
+# install.sh — Installs and manages Personal Archive software artifacts and dedicated agent workspace.
+# Personal Archive does NOT automatically administer or rewrite OpenClaw configuration.
 # For OpenClaw configuration procedures, see docs/OPENCLAW_SETUP.md.
 
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd -P)"
-DEST="${SKILL_DIRECTORY:-$HOME/.openclaw/workspace/skills/home-archive}"
-AGENT_WS="${AGENT_WORKSPACE:-$HOME/.openclaw/workspaces/home-archive}"
+DEST="${SKILL_DIRECTORY:-$HOME/.openclaw/workspace/skills/personal-archive}"
+AGENT_WS="${AGENT_WORKSPACE:-$HOME/.openclaw/workspaces/archivist}"
 
 archive_root=""
 mode="install"
@@ -35,8 +35,8 @@ while [[ $# -gt 0 ]]; do
       echo ''
       echo 'Options:'
       echo '  --archive-root <path>  Specify absolute archive directory to initialize or verify'
-      echo '  --check                Read-only inspection of OpenClaw Home Archive integration health'
-      echo '  --uninstall            Safely remove Home Archive software artifacts (preserves archive data)'
+      echo '  --check                Read-only inspection of OpenClaw Personal Archive integration health'
+      echo '  --uninstall            Safely remove Personal Archive software artifacts (preserves archive data)'
       echo '  --help, -h             Show this help message'
       exit 0
       ;;
@@ -62,7 +62,7 @@ fi
 
 # Handle --uninstall mode
 if [[ "$mode" == "uninstall" ]]; then
-  echo "==> Removing Home Archive software artifacts..."
+  echo "==> Removing Personal Archive software artifacts..."
 
   # 1. Remove installed skill
   if [[ -d "$DEST" || -L "$DEST" ]]; then
@@ -80,20 +80,20 @@ if [[ "$mode" == "uninstall" ]]; then
   configured_root=""
   if [[ -n "$archive_root" ]]; then
     configured_root="$archive_root"
-  elif configured_json="$(openclaw config get skills.entries.home-archive.env.HOME_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$configured_json" && "$configured_json" != "null" ]]; then
+  elif configured_json="$(openclaw config get skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$configured_json" && "$configured_json" != "null" ]]; then
     configured_root="$(python3 -c "import json, sys; print(json.loads(sys.argv[1]) or '')" "$configured_json" 2>/dev/null || echo "")"
   fi
 
   echo ""
-  echo "Home Archive software artifacts uninstalled successfully."
+  echo "Personal Archive software artifacts uninstalled successfully."
   if [[ -n "$configured_root" ]]; then
     echo "NOTE: Durable archive data at '$configured_root' was preserved untouched."
   else
-    echo "NOTE: Any durable household archive data was preserved untouched."
+    echo "NOTE: Any durable personal archive data was preserved untouched."
   fi
   echo "NOTE: Apple Photos assets were preserved untouched."
   echo ""
-  echo "OpenClaw configuration and main agent directives may still reference Home Archive."
+  echo "OpenClaw configuration and main agent directives may still reference Personal Archive."
   echo "To remove those OpenClaw references, please follow:"
   echo "    docs/OPENCLAW_SETUP.md#uninstall"
   exit 0
@@ -137,13 +137,13 @@ fi
 
 # 2. Stage and install skill files
 mkdir -p "$(dirname "$DEST")"
-staged_skill="$(mktemp -d "$(dirname "$DEST")/.home-archive-install.XXXXXX")"
+staged_skill="$(mktemp -d "$(dirname "$DEST")/.personal-archive-install.XXXXXX")"
 trap 'rm -rf -- "$staged_skill"' EXIT
 mkdir -p "$staged_skill/scripts"
 cp "$SRC/SKILL.md" "$staged_skill/SKILL.md"
 cp "$SRC/README.md" "$staged_skill/README.md"
-cp "$SRC/scripts/home_archive.py" "$staged_skill/scripts/home_archive.py"
-chmod +x "$staged_skill/scripts/home_archive.py"
+cp "$SRC/scripts/personal_archive.py" "$staged_skill/scripts/personal_archive.py"
+chmod +x "$staged_skill/scripts/personal_archive.py"
 
 # If DEST is a symlink, remove only the link, leaving its target untouched.
 rm -rf -- "$DEST"
@@ -152,9 +152,9 @@ echo "Installed skill to: $DEST"
 
 # 3. Provision / update dedicated agent workspace
 mkdir -p "$AGENT_WS"
-if [[ -d "$SRC/openclaw/workspace-home-archive" ]]; then
-  cp "$SRC/openclaw/workspace-home-archive/AGENTS.md" "$AGENT_WS/AGENTS.md"
-  cp "$SRC/openclaw/workspace-home-archive/IDENTITY.md" "$AGENT_WS/IDENTITY.md"
+if [[ -d "$SRC/openclaw/workspace-archivist" ]]; then
+  cp "$SRC/openclaw/workspace-archivist/AGENTS.md" "$AGENT_WS/AGENTS.md"
+  cp "$SRC/openclaw/workspace-archivist/IDENTITY.md" "$AGENT_WS/IDENTITY.md"
   rm -f "$AGENT_WS/MEMORY.md" "$AGENT_WS/USER.md"
   echo "Provisioned agent workspace at: $AGENT_WS"
 fi
@@ -163,9 +163,9 @@ fi
 resolved_archive_root=""
 if [[ -n "$archive_root" ]]; then
   resolved_archive_root="$archive_root"
-elif [[ -n "${HOME_ARCHIVE_ROOT:-}" ]]; then
-  resolved_archive_root="$HOME_ARCHIVE_ROOT"
-elif configured_json="$(openclaw config get skills.entries.home-archive.env.HOME_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$configured_json" && "$configured_json" != "null" ]]; then
+elif [[ -n "${PERSONAL_ARCHIVE_ROOT:-}" ]]; then
+  resolved_archive_root="$PERSONAL_ARCHIVE_ROOT"
+elif configured_json="$(openclaw config get skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$configured_json" && "$configured_json" != "null" ]]; then
   resolved_archive_root="$(python3 -c "import json, sys; print(json.loads(sys.argv[1]) or '')" "$configured_json" 2>/dev/null || echo "")"
 fi
 
@@ -178,18 +178,14 @@ from pathlib import Path
 raw = sys.argv[1]
 if not raw or not raw.strip() or "<archive-root>" in raw:
     sys.exit(1)
-p = Path(os.path.expanduser(raw))
-if not p.is_absolute():
+p = Path(os.path.realpath(os.path.expanduser(raw)))
+if not Path(os.path.expanduser(raw)).is_absolute():
     sys.exit(1)
-dest = Path(os.path.expanduser(sys.argv[2])).resolve()
-# Check lexical containment and symlink resolved containment
-for candidate in (p, p.resolve() if p.exists() else p):
-    for target in (dest, dest.resolve()):
-        try:
-            if candidate == target or target in candidate.parents:
-                sys.exit(1)
-        except Exception:
-            pass
+dest = Path(os.path.realpath(os.path.expanduser(sys.argv[2])))
+for cand in (p, Path(os.path.abspath(os.path.expanduser(raw)))):
+    for tgt in (dest, Path(os.path.abspath(os.path.expanduser(sys.argv[2])))):
+        if cand == tgt or tgt in cand.parents:
+            sys.exit(1)
 ' "$resolved_archive_root" "$DEST"; then
     echo "Invalid archive path: $resolved_archive_root (must be an absolute path outside the skill directory)" >&2
     exit 1
@@ -198,14 +194,14 @@ for candidate in (p, p.resolve() if p.exists() else p):
   expanded_root="$(python3 -c "import os, sys; print(os.path.expanduser(sys.argv[1]))" "$resolved_archive_root")"
 
   if [[ ! -d "$expanded_root" ]]; then
-    echo "Initializing new Home Archive at: $expanded_root"
-    HOME_ARCHIVE_ROOT="$expanded_root" python3 "$DEST/scripts/home_archive.py" init
+    echo "Initializing new Personal Archive at: $expanded_root"
+    PERSONAL_ARCHIVE_ROOT="$expanded_root" python3 "$DEST/scripts/personal_archive.py" init
   else
-    echo "Preserving existing Home Archive at: $expanded_root"
+    echo "Preserving existing Personal Archive at: $expanded_root"
   fi
 
-  echo "Running Home Archive doctor check..."
-  HOME_ARCHIVE_ROOT="$expanded_root" python3 "$DEST/scripts/home_archive.py" doctor
+  echo "Running Personal Archive doctor check..."
+  PERSONAL_ARCHIVE_ROOT="$expanded_root" python3 "$DEST/scripts/personal_archive.py" doctor
 fi
 
 echo ""
@@ -216,7 +212,7 @@ if [[ -n "$resolved_archive_root" ]]; then
 fi
 
 if python3 "$SRC/scripts/check_openclaw.py" "${check_args[@]}"; then
-  echo "==> Installation complete. OpenClaw Home Archive integration is verified!"
+  echo "==> Installation complete. OpenClaw Personal Archive integration is verified!"
   echo "    Skill:     $DEST"
   echo "    Workspace: $AGENT_WS"
   echo "    Archive:   ${resolved_archive_root:-Configured in OpenClaw}"
@@ -224,7 +220,7 @@ if python3 "$SRC/scripts/check_openclaw.py" "${check_args[@]}"; then
   echo "If you recently updated OpenClaw settings, restart the Gateway:"
   echo "    openclaw gateway restart"
 else
-  echo "==> Home Archive software artifacts and workspace installed."
+  echo "==> Personal Archive software artifacts and workspace installed."
   echo "    Skill:     $DEST"
   echo "    Workspace: $AGENT_WS"
   echo ""
