@@ -226,43 +226,75 @@ Original evidence remains available so a user can inspect it if extraction was w
 
 ## 9. Natural-language orchestration
 
-The OpenClaw skill is the conversational adapter.
+Natural-language orchestration is divided across an intentional two-agent boundary:
 
-The user should not normally say:
-- create entity
-- add attachment
-- set fact
-- merge ID X into Y
+```
+User / iMessage
+      │
+      ▼
+main agent
+  - Detects Home Archive intent
+  - Collects user request and attachment paths
+  - Resolves conversation-dependent references (e.g. "it" -> "the toaster")
+  - Delegates via sessions_spawn(agentId="home-archive", context="isolated", ...)
+  - Relays child relay_message directly; never supplements from memory
+      │
+      │ sessions_spawn (agentId: "home-archive", context: "isolated", mode: "run")
+      ▼
+dedicated agent: "home-archive"
+  - Isolated workspace (~/.openclaw/workspaces/home-archive)
+  - Zero main agent chat history or conversational memory
+  - Performs domain interpretation:
+      • normalizes relative dates against invocation timestamp
+      • extracts durable facts from prose and attachments
+      • attributes provenance (source, confidence)
+  - Invokes python3 {baseDir}/scripts/home_archive.py ...
+  - Returns structured response envelope with pre-rendered relay_message
+      │
+      │ CLI execution
+      ▼
+Authoritative Filesystem Archive
+  - ~/Documents/OpenClaw/HomeArchive
+```
 
-Instead the model maps normal language onto deterministic operations.
+### Division of responsibilities
 
-### Save intent
+1. **Main agent (`main`)**:
+   - Resolves conversation dependency ONLY: pronouns ("it", "that guy") that cannot be understood without prior conversation turns.
+   - Does NOT interpret dates (leaves "yesterday", "last week" as original wording).
+   - Does NOT extract facts from prose or attachments.
+   - Passes original request, resolved context, invocation timestamp, and attachments.
 
-Archive when intent is reasonably clear.
+2. **Dedicated agent (`home-archive`)**:
+   - Operates in clean, isolated context (`context: "isolated"`).
+   - Performs domain interpretation: resolves relative dates against invocation timestamp, extracts facts, attributes provenance.
+   - Issues deterministic CLI commands.
+   - Never fabricates `HA-...` or `HAA-...` identifiers.
+   - Formulates a complete, user-facing `relay_message` in its response envelope.
 
-If the user merely discusses an object/document and it is unclear whether they want it
-saved, ask rather than silently archiving.
+3. **Deterministic CLI (`home_archive.py`)**:
+   - Owns persistence, sequence allocation, atomic writes, hashes, deduplication, soft deletion, and event history.
 
-### Entity resolution
+### Response contract
 
-Use search/current context to identify likely records.
+The dedicated agent returns a standard JSON response envelope:
 
-If there is one clear match, attach/update it.
-If multiple plausible matches exist, ask.
-If no reliable match exists, create a new entity rather than corrupting an unrelated one.
+```json
+{
+  "ok": true,
+  "source": "home-archive",
+  "operation": "search",
+  "status": "found",
+  "record_id": "HA-20260920-0001",
+  "relay_message": "The household toaster is a Breville model BTA820XL (Archive ID: HA-20260920-0001).",
+  "facts": { "brand": "Breville", "model": "BTA820XL" },
+  "evidence": [
+    { "attachment_id": "HAA-20260920-0001", "fact": "model", "value": "BTA820XL", "source": "receipt.pdf" }
+  ]
+}
+```
 
-### Retrieval
-
-Search first, then load only relevant record(s)/attachment metadata/evidence. Do not feed
-the entire archive to the model.
-
-### Relative dates
-
-Resolve clear relative dates using reliable local current date/time at execution.
-
-Preserve both:
-- normalized structured date
-- original natural-language statement in event/note history
+When `main` receives this completion event, it relays `relay_message` directly to the user without altering, questioning, or reconciling it against conversational memory.
 
 ## 10. Mutation protocol
 
@@ -358,21 +390,36 @@ The model should receive a bounded candidate set.
 
 ## 15. OpenClaw memory boundary
 
-OpenClaw's normal memory and Home Archive serve different purposes.
+OpenClaw's normal conversational memory and Home Archive serve fundamentally different purposes.
 
-Normal memory:
+Normal conversational memory:
 - conversational preferences
-- useful user context
-- ephemeral/derived summaries
+- user style context
+- ephemeral summaries and chat recollections
 
 Home Archive:
 - durable household records
-- evidence
+- source evidence
 - receipts/photos/documents
 - provenance
 - historical changes
 
-Do not rely on memory compaction/dreaming to preserve Home Archive evidence.
+### Isolation mechanism
+
+To ensure Home Archive factual reasoning is never contaminated by chat history or conversational memory:
+
+1. **Context & State Isolation**:
+   Home Archive runs as a separately configured OpenClaw agent (`home-archive`). This is an OpenClaw context and state boundary intended to eliminate prompt contamination, not an adversarial OS hypervisor boundary.
+2. **Memory Configuration**:
+   - `agents.entries.home-archive.memory.search.rememberAcrossConversations: false`.
+   - Tool denial: `tools.deny: ["group:memory"]` removes `memory_search` and `memory_get` entirely.
+   - Workspace isolation: `~/.openclaw/workspaces/home-archive/` contains no `MEMORY.md`, `USER.md`, or `memory/` directory.
+3. **Active Memory Scoping**:
+   If the OpenClaw `active-memory` plugin is active on the Gateway, it is explicitly configured with `config.agents: ["main"]` so `home-archive` is never targeted for pre-turn memory retrieval injections.
+4. **Dreaming**:
+   Dreaming operates on persistent workspaces with memory backends. The `home-archive` agent lacks `MEMORY.md` and runs one-shot subagent tasks, remaining outside dreaming sweeps.
+5. **Authoritative Principle**:
+   If Home Archive does not have a fact recorded, the agent must report it as not found. It must never fall back to main agent conversational memory.
 
 ## 16. Apple Photos integration
 
@@ -435,23 +482,26 @@ Before public commits, inspect staged changes for personal data.
 
 ## 18. Deployment topology
 
-A useful development topology is:
+A standard deployment topology is:
 
     M5 development machine
-    ~/src/openclaw-home-archive/
+    ~/src/openclaw-home-archive/ (or local checkout)
               ↓ git push
             GitHub
               ↓ git pull
-    M1 OpenClaw machine
+    M1 OpenClaw host
     ~/src/openclaw-home-archive/
-              ↓ symlink
-    ~/.openclaw/workspace/skills/home-archive/
+              ↓ install.sh / openclaw agent config
+    ├── ~/.openclaw/workspaces/home-archive/   (dedicated agent workspace)
+    │   ├── AGENTS.md                         (isolated bootstrap directives)
+    │   └── IDENTITY.md                       (isolated persona)
+    └── ~/.openclaw/workspace/skills/home-archive/ (installed skill)
 
-The real archive remains on the OpenClaw host at:
+The authoritative household archive remains on the OpenClaw host outside this repository:
 
-    <archive-root>/
+    ~/Documents/OpenClaw/HomeArchive  (configured as HOME_ARCHIVE_ROOT)
 
-The repository must not contain that data.
+The repository must not contain any household archive data.
 
 This topology is guidance, not a hard-coded assumption. The software should remain portable.
 

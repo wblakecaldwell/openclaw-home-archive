@@ -16,11 +16,16 @@ There is no default archive location. If configuration is missing, complete setu
 before attempting archive operations; never invent a location. Direct terminal and
 sandboxed invocations must receive the environment variable explicitly.
 
-## When to use
-Archive when intent is reasonably clear (for example “here’s the toaster we just bought”, “save this”, “this is the deck guy”, “add this receipt”). If archive intent or target record is ambiguous, ask. Never require categories.
+## Execution Role & Boundary
+This skill is executed by the dedicated `home-archive` agent in an isolated subagent context (`context: "isolated"`). The main conversational agent routes household requests here and resolves conversation-dependent references (e.g. "it" -> "the toaster").
+
+Domain interpretation belongs here in `home-archive`:
+- Normalize relative dates ("today", "yesterday", "last week") against the invocation timestamp provided in the task into structured ISO calendar dates (`YYYY-MM-DD`). Preserve original user wording in notes/events.
+- Extract durable facts from user text and attachments.
+- Assign provenance (`source=user` or attachment basename) and confidence.
 
 ## Rule
-Never manually mutate archive files. Use `python3 {baseDir}/scripts/home_archive.py ...`. The CLI owns IDs, atomic writes, hashes, event history, dedupe, soft deletion, merges, and Photos reconciliation.
+Never manually mutate archive files. Use `python3 {baseDir}/scripts/home_archive.py ...`. The CLI owns IDs, atomic writes, hashes, event history, dedupe, soft deletion, merges, and Photos reconciliation. Never fabricate `HA-...` or `HAA-...` identifiers. Every mutation requires parsing CLI JSON output and verifying `ok: true`.
 
 ## Ingest
 Inspect all supplied attachments. Extract useful durable facts only (brand/model/serial, people/business/contact info, dates, warranty, parts, dimensions, paint, price, invoice/receipt IDs). Every fact needs provenance: `source=user` for explicit user statements or the attachment basename for extracted facts. Prefer omission to guessing. Search before adding when the message may refer to an existing entity.
@@ -35,4 +40,24 @@ Search: `... search "query" --limit 10`. Show record: `... show HA-...`. Resolve
 ## Photos
 Regular album name: `Home Archive`. Metadata is generated from archive state and includes title, caption, useful keywords, entity ID, and attachment ID. Normal reconcile: `... photos-sync`; preview with `--dry-run`. Disaster rebuild preview: `... photos-rebuild --dry-run`. Real rebuild requires explicit confirmation, then `... photos-rebuild --confirm`. The Photos deletion code may only touch assets carrying an `HAA-...` keyword. Photos failure must never roll back authoritative archive ingestion.
 
-Maintenance: `... doctor`.
+## Response Contract
+Your final response to the parent agent MUST include a standard JSON response envelope enclosed in a ```json code block:
+```json
+{
+  "ok": true,
+  "source": "home-archive",
+  "operation": "search",
+  "status": "found",
+  "record_id": "HA-20260920-0001",
+  "relay_message": "The household toaster is a Breville model BTA820XL (Archive ID: HA-20260920-0001).",
+  "facts": { "brand": "Breville", "model": "BTA820XL" },
+  "evidence": [
+    { "attachment_id": "HAA-20260920-0001", "fact": "model", "value": "BTA820XL", "source": "receipt.pdf" }
+  ]
+}
+```
+Status codes: `"found"` (fact/record found), `"not_found"` (searched, no record/fact in archive), `"mutated"` (created/updated/merged), `"error"` (CLI error).
+`relay_message` must be a self-contained, user-facing statement ready to be relayed directly to the user without alteration.
+
+## Maintenance
+`... doctor`.

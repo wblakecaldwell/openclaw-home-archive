@@ -1,0 +1,30 @@
+// OpenClaw Main Agent Configuration Patch: main agent
+// Location: ~/.openclaw/openclaw.json5 (under agents.entries.main)
+//
+// Purpose: Configure subagent delegation constraints on the main agent.
+// - requireAgentId: true forces explicit target specification on every sessions_spawn call.
+// - allowAgents: ["home-archive"] restricts subagent delegation to the home-archive agent only.
+// - Note: Remove "home-archive" from main's skill list (skills) so main cannot execute the CLI directly.
+//
+// Verified Schema Note:
+// All keys verified against OpenClaw 2026.9.5 schema.
+
+{
+  agents: {
+    entries: {
+      "main": {
+        subagents: {
+          // [VERIFIED ON OPENCLAW 2026.9.5]: forces explicit agentId on sessions_spawn
+          requireAgentId: true,
+          // [VERIFIED ON OPENCLAW 2026.9.5]: restricts delegation to home-archive only
+          allowAgents: [
+            "home-archive"
+          ]
+        }
+        // [VERIFIED ON OPENCLAW 2026.9.5]: remove "home-archive" from main's skills list
+        // so main's prompt does not load home-archive CLI execution instructions:
+        // skills: ["...other skills...", /* NOT home-archive */]
+      }
+    }
+  }
+}

@@ -69,59 +69,43 @@ The archive directory, shown as `<archive-root>` in these docs, is configured th
 `HOME_ARCHIVE_ROOT`. That on-disk archive is the source of truth. Apple Photos provides
 an optional browsing view of its images.
 
-## Install
+## Installation & Setup
+
+### First-Time Installation
 ```bash
-unzip home-archive-skill.zip
-cd home-archive-skill
+git clone https://github.com/wblakecaldwell/openclaw-home-archive.git
+cd openclaw-home-archive
+./install.sh --archive-root ~/Documents/OpenClaw/HomeArchive
+
+# One-time OpenClaw integration:
+# Follow docs/OPENCLAW_SETUP.md to configure the dedicated agent and routing
+
+# Verify integration health:
+./install.sh --check
+```
+
+Requires Python 3 and the `openclaw` command on `PATH`.
+
+The installer owns Home Archive software artifacts:
+- Installs the skill to `~/.openclaw/workspace/skills/home-archive/`
+- Provisions the dedicated agent workspace at `~/.openclaw/workspaces/home-archive/`
+- Initializes the archive root directory if it does not exist, or preserves it if it does
+- Runs `home_archive.py doctor`
+
+It does **not** automatically administer or modify your OpenClaw configuration file (`openclaw.json5`) or the main agent. For the one-time OpenClaw agent and routing setup, follow [`docs/OPENCLAW_SETUP.md`](docs/OPENCLAW_SETUP.md).
+
+### Future Software Updates
+```bash
+git pull
 ./install.sh
+./install.sh --check
 ```
-Requires Python 3 and the `openclaw` command on `PATH`. The installer reads
-`skills.entries.home-archive.env.HOME_ARCHIVE_ROOT` from your active OpenClaw
-configuration (normally `~/.openclaw/openclaw.json`). If configured, it displays
-and preserves that location. Otherwise it prompts for an absolute path, with no
-default, and saves it through `openclaw config set`.
 
-For an unattended first installation, supply the location explicitly:
-
+### Uninstallation
 ```bash
-./install.sh --archive-root "<archive-root>"
+./install.sh --uninstall
 ```
-
-Replace `<archive-root>` with your chosen absolute directory outside the installed
-skill directory. A conflicting existing setting causes installation to stop; updates
-never silently redirect an archive. A shell-only `HOME_ARCHIVE_ROOT` is offered as a
-candidate during interactive setup and requires confirmation before it is saved.
-
-Installs to `~/.openclaw/workspace/skills/home-archive/`.
-Each installation replaces that directory completely, including hidden files and
-local edits, with fresh skill code and documentation. No backup is created. Keep
-configuration and household data outside the installed skill directory. Installation
-configures a missing archive location but does not initialize the household archive.
-
-OpenClaw supplies the configured environment variable during host-based skill runs.
-For direct terminal use, export the same location before running the Python CLI:
-
-```bash
-export HOME_ARCHIVE_ROOT="<archive-root>"
-```
-
-The export applies to the current shell and its child processes. There is no fallback:
-archive commands fail if the variable is missing or blank. `--help` still works without
-configuration. Changing the location selects a different directory and does not move
-existing archive data. Sandboxed OpenClaw runs need the variable and filesystem access
-configured in the sandbox as well; host skill settings are not injected there.
-
-See [OpenClaw skill configuration](https://docs.openclaw.ai/tools/skills-config) and
-[configuration commands](https://docs.openclaw.ai/cli/config) for custom config paths
-and deployment-specific setup.
-
-Then run:
-```bash
-openclaw skills list | grep home-archive
-python3 ~/.openclaw/workspace/skills/home-archive/scripts/home_archive.py init
-python3 ~/.openclaw/workspace/skills/home-archive/scripts/home_archive.py doctor
-```
-The first Photos operation may trigger macOS Automation permission for Photos. Archive operations still work without Photos permission.
+Removes the installed skill and dedicated agent workspace files. **Never** touches or deletes your archive data at `~/Documents/OpenClaw/HomeArchive` or Apple Photos assets. Follow [`docs/OPENCLAW_SETUP.md#uninstall`](docs/OPENCLAW_SETUP.md#uninstall) to clean up OpenClaw configuration references.
 
 
 ## Privacy and repository hygiene

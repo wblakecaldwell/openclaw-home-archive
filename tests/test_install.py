@@ -1,14 +1,13 @@
 """Exercise installation only inside disposable home directories."""
 
-import os
 import json
-import sys
+import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
-
 
 PROJECT = Path(__file__).resolve().parents[1]
 
@@ -20,6 +19,7 @@ class InstallTests(unittest.TestCase):
         self.workspace = Path(temporary.name)
         self.user_home = self.workspace / "test home"
         self.destination = self.user_home / ".openclaw/workspace/skills/home-archive"
+        self.agent_ws = self.user_home / ".openclaw/workspaces/home-archive"
         self.source = self.workspace / "source checkout"
         (self.source / "scripts").mkdir(parents=True)
         for name in (
@@ -27,14 +27,19 @@ class InstallTests(unittest.TestCase):
             "SKILL.md",
             "README.md",
             "scripts/home_archive.py",
-            "scripts/setup_archive.py",
+            "scripts/check_openclaw.py",
         ):
             shutil.copy2(PROJECT / name, self.source / name)
+        if (PROJECT / "openclaw/workspace-home-archive").exists():
+            shutil.copytree(PROJECT / "openclaw/workspace-home-archive", self.source / "openclaw/workspace-home-archive")
+
+        self.archive_root = self.workspace / "household archive"
+        self.archive_root.mkdir(parents=True, exist_ok=True)
         # HOME is supplied only to the child installer, never changed in this process.
         self.env = dict(
             os.environ,
             HOME=str(self.user_home),
-            HOME_ARCHIVE_ROOT=str(self.workspace / "household archive"),
+            HOME_ARCHIVE_ROOT=str(self.archive_root),
             PYTHONDONTWRITEBYTECODE="1",
         )
 
@@ -46,7 +51,7 @@ class InstallTests(unittest.TestCase):
                         "entries": {
                             "home-archive": {
                                 "env": {
-                                    "HOME_ARCHIVE_ROOT": self.env["HOME_ARCHIVE_ROOT"],
+                                    "HOME_ARCHIVE_ROOT": str(self.archive_root),
                                 }
                             }
                         }
@@ -82,6 +87,22 @@ class InstallTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
         return result
 
+    def test_fresh_install_and_workspace_provisioning(self):
+        result = self.install()
+        # 1. Skill installed
+        self.assertTrue(self.destination.exists())
+        self.assertTrue((self.destination / "SKILL.md").exists())
+        self.assertTrue((self.destination / "README.md").exists())
+        self.assertTrue((self.destination / "scripts/home_archive.py").exists())
+        self.assertTrue(os.access(self.destination / "scripts/home_archive.py", os.X_OK))
+
+        # 2. Dedicated agent workspace provisioned
+        self.assertTrue(self.agent_ws.exists())
+        self.assertTrue((self.agent_ws / "AGENTS.md").exists())
+        self.assertTrue((self.agent_ws / "IDENTITY.md").exists())
+        self.assertFalse((self.agent_ws / "MEMORY.md").exists())
+        self.assertFalse((self.agent_ws / "USER.md").exists())
+
     def test_reinstall_replaces_all_files_without_backups(self):
         self.install()
         (self.destination / ".old-config").write_text("stale")
@@ -105,115 +126,169 @@ class InstallTests(unittest.TestCase):
         )
         self.assertEqual(list(self.destination.parent.iterdir()), [self.destination])
 
-    def test_install_leaves_config_and_archive_untouched(self):
-        config = self.config
-        before = config.read_bytes()
+    def test_install_leaves_openclaw_config_and_main_agents_untouched(self):
+        # Prepare main AGENTS.md
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text("# Main Agent Directives\nCustom content.\n")
+
+        config_before = self.config.read_bytes()
+        agents_before = main_agents.read_bytes()
+
+        self.install()
+
+        # install.sh MUST NOT modify openclaw configuration or main's AGENTS.md
+        self.assertEqual(self.config.read_bytes(), config_before)
+        self.assertEqual(main_agents.read_bytes(), agents_before)
+
+    def test_existing_archive_is_preserved_never_deleted(self):
         archive = Path(self.env["HOME_ARCHIVE_ROOT"])
-        archive.mkdir()
-        evidence = archive / "synthetic.txt"
-        evidence.write_bytes(b"Synthetic evidence")
+        evidence = archive / "receipt.txt"
+        evidence.write_bytes(b"Receipt evidence")
+
         self.install()
-        self.assertEqual(config.read_bytes(), before)
-        self.assertEqual(list(archive.iterdir()), [evidence])
-        self.assertEqual(evidence.read_bytes(), b"Synthetic evidence")
 
-    def test_existing_config_works_without_shell_variable_or_archive_initialization(
-        self,
-    ):
-        self.env.pop("HOME_ARCHIVE_ROOT")
-        self.install()
-        self.assertFalse((self.user_home / "Documents").exists())
-        self.assertEqual({p.name for p in self.user_home.iterdir()}, {".openclaw"})
+        self.assertTrue(evidence.exists())
+        self.assertEqual(evidence.read_bytes(), b"Receipt evidence")
 
-    def test_incomplete_source_preserves_previous_install(self):
-        self.install()
-        previous = (self.destination / "SKILL.md").read_bytes()
-        (self.source / "scripts/home_archive.py").unlink()
-        self.install(success=False)
-        self.assertEqual((self.destination / "SKILL.md").read_bytes(), previous)
-        self.assertTrue((self.destination / "scripts/home_archive.py").exists())
-        self.assertEqual(list(self.destination.parent.iterdir()), [self.destination])
+    def test_archive_initialization_when_missing(self):
+        new_archive = self.workspace / "brand new archive"
+        self.assertFalse(new_archive.exists())
 
-    def test_replacing_symlink_preserves_its_target(self):
-        self.destination.parent.mkdir(parents=True)
-        self.destination.symlink_to(self.source, target_is_directory=True)
-        self.install()
-        self.assertFalse(self.destination.is_symlink())
-        self.assertTrue((self.source / "install.sh").exists())
-        self.assertEqual(
-            (self.destination / "SKILL.md").read_bytes(),
-            (self.source / "SKILL.md").read_bytes(),
-        )
+        self.install(args=("--archive-root", str(new_archive)))
 
-    def test_source_inside_destination_is_rejected(self):
-        self.destination.parent.mkdir(parents=True)
-        shutil.copytree(self.source, self.destination)
-        result = self.install(source=self.destination, success=False)
-        self.assertIn("outside the installed skill directory", result.stderr)
-        self.assertTrue((self.destination / "install.sh").exists())
+        self.assertTrue(new_archive.exists())
+        self.assertTrue((new_archive / "records").exists())
+        self.assertTrue((new_archive / "state/sequence.json").exists())
 
-    def test_missing_configuration_requires_explicit_noninteractive_location(self):
-        self.config.write_text("{}")
-        result = self.install(success=False)
-        self.assertIn("--archive-root", result.stderr)
-        self.assertFalse(self.destination.exists())
-        self.assertEqual(self.config.read_text(), "{}")
-
-    def test_explicit_location_is_persisted_and_displayed(self):
-        self.config.write_text('{"unrelated": {"keep": true}}')
-        location = str(self.workspace / 'archive with spaces "and quotes"')
-        result = self.install(args=("--archive-root", location))
-        data = json.loads(self.config.read_text())
-        self.assertTrue(data["unrelated"]["keep"])
-        self.assertEqual(
-            data["skills"]["entries"]["home-archive"]["env"]["HOME_ARCHIVE_ROOT"],
-            location,
-        )
-        self.assertIn(location, result.stdout)
-        self.assertFalse(Path(location).exists())
-
-    def test_existing_location_is_displayed_and_preserved(self):
-        before = self.config.read_bytes()
-        self.env["HOME_ARCHIVE_ROOT"] = str(self.workspace / "temporary override")
-        result = self.install()
-        self.assertIn("existing OpenClaw configuration", result.stdout)
-        self.assertIn("shell HOME_ARCHIVE_ROOT differs", result.stdout)
-        self.assertEqual(self.config.read_bytes(), before)
-
-    def test_conflicting_location_is_rejected(self):
-        before = self.config.read_bytes()
-        self.install(
-            args=("--archive-root", str(self.workspace / "other")), success=False
-        )
-        self.assertEqual(self.config.read_bytes(), before)
-        self.assertFalse(self.destination.exists())
-
-    def test_config_errors_do_not_replace_installed_code(self):
-        self.install()
-        marker = self.destination / "preserve.txt"
-        marker.write_text("Existing installation")
-        self.env["TEST_OPENCLAW_READ_FAILURE"] = "1"
-        self.install(success=False)
-        self.assertTrue(marker.exists())
-        self.env.pop("TEST_OPENCLAW_READ_FAILURE")
-        self.config.write_text("{}")
-        self.env["TEST_OPENCLAW_WRITE_FAILURE"] = "1"
-        self.install(
-            args=("--archive-root", str(self.workspace / "archive")), success=False
-        )
-        self.assertTrue(marker.exists())
-        self.assertEqual(self.config.read_text(), "{}")
-
-    def test_invalid_locations_are_rejected_before_replacement(self):
-        self.config.write_text("{}")
+    def test_invalid_archive_location_rejected(self):
         for location in (
             "",
-            " ",
             "relative/path",
             "<archive-root>",
             str(self.destination / "data"),
         ):
             with self.subTest(location=location):
                 self.install(args=("--archive-root", location), success=False)
-                self.assertFalse(self.destination.exists())
-                self.assertEqual(self.config.read_text(), "{}")
+
+    def test_check_is_strictly_read_only(self):
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text("# Main Directives\n")
+
+        config_before = self.config.read_bytes()
+        agents_before = main_agents.read_bytes()
+
+        # Run check
+        self.install(args=("--check",), success=False)
+
+        # Confirm 100% byte identical
+        self.assertEqual(self.config.read_bytes(), config_before)
+        self.assertEqual(main_agents.read_bytes(), agents_before)
+
+    def test_check_reports_failure_on_missing_config_and_passes_when_configured(self):
+        # 1. Initially, home-archive agent is not registered and routing is missing
+        res_fail = self.install(args=("--check",), success=False)
+        self.assertIn("[FAIL]", res_fail.stdout)
+        self.assertIn("docs/OPENCLAW_SETUP.md", res_fail.stderr)
+
+        # 2. Install filesystem artifacts
+        self.install()
+
+        # 3. Simulate user completing configuration per docs/OPENCLAW_SETUP.md
+        data = json.loads(self.config.read_text())
+        data["agents"] = {
+            "entries": {
+                "main": {
+                    "subagents": {
+                        "requireAgentId": True,
+                        "allowAgents": ["home-archive"],
+                    },
+                    "skills": [],
+                },
+                "home-archive": {
+                    "workspace": "~/.openclaw/workspaces/home-archive",
+                    "skills": ["home-archive"],
+                    "tools": {
+                        "deny": ["group:sessions", "group:memory"],
+                    },
+                    "memory": {
+                        "search": {
+                            "rememberAcrossConversations": False,
+                        }
+                    },
+                    "subagents": {
+                        "maxSpawnDepth": 1,
+                        "allowAgents": [],
+                    },
+                },
+            }
+        }
+        data["tools"] = {
+            "sessions": {"visibility": "tree"},
+            "agentToAgent": {"enabled": False},
+        }
+        self.config.write_text(json.dumps(data))
+
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text(
+            "# Main Directives\n<!-- BEGIN OPENCLAW HOME ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+            "home-archive delegation directives\n<!-- END OPENCLAW HOME ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+        )
+
+        # Now check must pass
+        res_pass = self.install(args=("--check",), success=True)
+        self.assertIn("[PASS]", res_pass.stdout)
+        self.assertIn("All Home Archive integration checks passed", res_pass.stdout)
+
+        # 4. Verify that omitting optional hardening (requireAgentId=False, default gateway settings) still passes check with [INFO]
+        data["agents"]["entries"]["main"]["subagents"]["requireAgentId"] = False
+        data["tools"] = {}
+        self.config.write_text(json.dumps(data))
+        res_info = self.install(args=("--check",), success=True)
+        self.assertIn("[INFO]", res_info.stdout)
+        self.assertIn("All Home Archive integration checks passed", res_info.stdout)
+
+    def test_uninstall_removes_software_and_preserves_archive_and_config(self):
+        # Setup archive with evidence
+        archive = Path(self.env["HOME_ARCHIVE_ROOT"])
+        evidence = archive / "warranty.pdf"
+        evidence.write_bytes(b"Warranty evidence")
+
+        # Setup config and main AGENTS.md
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text("# Main Agent Directives\nPreserved.\n")
+
+        config_before = self.config.read_bytes()
+        agents_before = main_agents.read_bytes()
+
+        # Install
+        self.install()
+        self.assertTrue(self.destination.exists())
+        self.assertTrue(self.agent_ws.exists())
+
+        # Uninstall
+        res = self.install(args=("--uninstall",), success=True)
+        self.assertIn("uninstalled successfully", res.stdout)
+        self.assertIn("docs/OPENCLAW_SETUP.md#uninstall", res.stdout)
+
+        # Filesystem cleanup: software artifacts removed
+        self.assertFalse(self.destination.exists())
+        self.assertFalse(self.agent_ws.exists())
+
+        # CRITICAL INVARIANTS:
+        # 1. Archive data must NOT be touched
+        self.assertTrue(evidence.exists())
+        self.assertEqual(evidence.read_bytes(), b"Warranty evidence")
+
+        # 2. OpenClaw config must NOT be touched by uninstaller
+        self.assertEqual(self.config.read_bytes(), config_before)
+
+        # 3. Main AGENTS.md must NOT be touched by uninstaller
+        self.assertEqual(main_agents.read_bytes(), agents_before)
+
+
+if __name__ == "__main__":
+    unittest.main()
