@@ -57,7 +57,6 @@ openclaw config set agents.entries.archivist '{
     }
   },
   "subagents": {
-    "maxSpawnDepth": 1,
     "allowAgents": []
   }
 }' --strict-json
@@ -70,7 +69,7 @@ openclaw config set agents.entries.archivist '{
   - `group:memory` blocks access to memory embeddings and chat history summaries.
   - `web_search`, `browser`, `edit` prevent unneeded external interactions.
 - `memory.search.rememberAcrossConversations: false`: Disables cross-conversation memory searching for this agent.
-- `subagents.maxSpawnDepth: 1`: In OpenClaw's schema, `1` makes direct children leaves. Combined with `allowAgents: []`, this guarantees this subagent cannot spawn further subagents.
+- `subagents.allowAgents: []`: Combined with denying `group:sessions`, this guarantees `archivist` cannot spawn any subagents (functioning strictly as a leaf worker). Note: in OpenClaw's schema, `maxSpawnDepth` is a gateway/defaults key (`agents.defaults.subagents.maxSpawnDepth`), not a per-agent key under `agents.entries`.
 - `skills: ["personal-archive"]`: Grants permission to execute `personal_archive.py`.
 
 ---
@@ -235,7 +234,7 @@ Expected output:
   [PASS] archivist agent has 'personal-archive' skill
   [PASS] archivist memory isolated (rememberAcrossConversations=false, group:memory denied)
   [PASS] archivist session tools denied (group:sessions)
-  [PASS] archivist configured as leaf agent (maxSpawnDepth=1, allowAgents=[])
+  [PASS] archivist configured as leaf agent (allowAgents=[])
   [PASS] main agent does not directly execute 'personal-archive' skill
   [PASS] main agent subagents.allowAgents includes 'archivist'
   [PASS] main agent subagents.requireAgentId is true (recommended hardening)

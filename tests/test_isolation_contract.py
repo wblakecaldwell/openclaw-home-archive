@@ -183,7 +183,9 @@ class IsolationContractTests(unittest.TestCase):
         agent_cfg = (PROJECT / "openclaw/agent-archivist.json5").read_text()
         self.assertIn("group:sessions", agent_cfg)
         self.assertIn("group:memory", agent_cfg)
-        self.assertIn("maxSpawnDepth", agent_cfg)
+        self.assertIn("allowAgents", agent_cfg)
+        # OpenClaw 2026.9.5 schema rejects maxSpawnDepth on agents.entries.<id>.subagents
+        self.assertNotIn("maxSpawnDepth", agent_cfg)
         self.assertIn("rememberAcrossConversations", agent_cfg)
 
         main_patch = (PROJECT / "openclaw/agent-main-patch.json5").read_text()

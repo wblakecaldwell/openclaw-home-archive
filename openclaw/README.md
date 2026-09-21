@@ -23,7 +23,7 @@ main agent
 dedicated agent: "archivist" (Archivist)
   - Dedicated workspace (~/.openclaw/workspaces/archivist)
   - Separate session DB and state store
-  - Leaf worker: maxSpawnDepth: 1, subagents.allowAgents: []
+  - Leaf worker: subagents.allowAgents: [] (no subagent delegation permitted)
   - Denied: group:sessions, group:memory, web_search, browser, edit, apply_patch
   - Skills allowlist: ["personal-archive"]
   - memory.search.rememberAcrossConversations: false
@@ -77,8 +77,8 @@ openclaw config get plugins.entries.active-memory 2>/dev/null || echo "active-me
 openclaw config get plugins.entries.memory-core.config.dreaming 2>/dev/null || echo "dreaming not configured"
 ```
 
-*Verified Schema Status (OpenClaw 2026.9.5):*
-- `maxSpawnDepth: 1` is verified (1 makes direct children leaves).
+- `subagents.allowAgents: []` is verified (leaf worker cannot spawn any other subagent).
+- `agents.defaults.subagents.maxSpawnDepth: 1` is an optional gateway-wide setting (per-agent `maxSpawnDepth` is not supported in `agents.entries`).
 - `requireAgentId: true` and `allowAgents: ["archivist"]` are verified.
 - `tools.sessions.visibility: "tree"` is verified.
 - `tools.agentToAgent.enabled: false` is verified.
@@ -123,7 +123,7 @@ The read-only health check will inspect the integration:
   [PASS] archivist agent has 'personal-archive' skill
   [PASS] archivist memory isolated (rememberAcrossConversations=false, group:memory denied)
   [PASS] archivist session tools denied (group:sessions)
-  [PASS] archivist configured as leaf agent (maxSpawnDepth=1, allowAgents=[])
+  [PASS] archivist configured as leaf agent (allowAgents=[])
   [PASS] main agent does not directly execute 'personal-archive' skill
   [PASS] main agent subagents.allowAgents includes 'archivist'
   [PASS] main agent subagents.requireAgentId is true (recommended hardening)

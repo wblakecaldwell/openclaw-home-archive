@@ -156,13 +156,12 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
         ("archivist session tools denied (group:sessions)", session_tool_ok, "critical")
     )
 
-    # 11. Leaf worker configuration
+    # 11. Leaf worker configuration (cannot spawn subagents)
     subagents_cfg = agent.get("subagents", {}) if isinstance(agent, dict) else {}
-    depth = subagents_cfg.get("maxSpawnDepth")
     allow_subs = subagents_cfg.get("allowAgents")
-    leaf_ok = (depth == 1) and (allow_subs == [])
+    leaf_ok = (allow_subs == [])
     results.append(
-        ("archivist configured as leaf agent (maxSpawnDepth=1, allowAgents=[])", leaf_ok, "critical")
+        ("archivist configured as leaf agent (allowAgents=[])", leaf_ok, "critical")
     )
 
     # 12. Main agent does not directly execute personal-archive skill

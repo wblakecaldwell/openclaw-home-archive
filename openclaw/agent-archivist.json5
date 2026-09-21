@@ -45,8 +45,6 @@
           }
         },
         subagents: {
-          // [VERIFIED ON OPENCLAW 2026.9.5]: maxSpawnDepth=1 makes direct children leaf agents
-          maxSpawnDepth: 1,
           // [VERIFIED ON OPENCLAW 2026.9.5]: leaf worker cannot spawn any other subagent
           allowAgents: []
         }

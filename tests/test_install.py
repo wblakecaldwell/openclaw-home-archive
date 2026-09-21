@@ -219,7 +219,6 @@ class InstallTests(unittest.TestCase):
                         }
                     },
                     "subagents": {
-                        "maxSpawnDepth": 1,
                         "allowAgents": [],
                     },
                 },
