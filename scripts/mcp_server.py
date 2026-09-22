@@ -386,7 +386,7 @@ def query_vision_model(
     timeout: int = 30,
 ) -> str:
     """Query the local vision model (Gemma 4 via LM Studio) with an image data URI and prompt."""
-    raw_url = os.environ.get("LMSTUDIO_URL") or os.environ.get("LM_STUDIO_URL") or "http://localhost:1234/v1"
+    raw_url = os.environ.get("PERSONAL_ARCHIVIST_LMSTUDIO_URL") or os.environ.get("LMSTUDIO_URL") or os.environ.get("LM_STUDIO_URL") or "http://localhost:1234/v1"
     raw_url = raw_url.rstrip("/")
     if not raw_url.endswith("/chat/completions"):
         endpoint_url = f"{raw_url}/chat/completions"

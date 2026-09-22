@@ -585,11 +585,12 @@ class MCPTests(ArchiveTestCase):
         self.addCleanup(server.shutdown)
 
         import os
+        old_pa_url = os.environ.get("PERSONAL_ARCHIVIST_LMSTUDIO_URL")
         old_url = os.environ.get("LMSTUDIO_URL")
         old_token = os.environ.get("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN")
         old_model = os.environ.get("PERSONAL_ARCHIVIST_MODEL")
 
-        os.environ["LMSTUDIO_URL"] = f"http://127.0.0.1:{port}/v1"
+        os.environ["PERSONAL_ARCHIVIST_LMSTUDIO_URL"] = f"http://127.0.0.1:{port}/v1"
         try:
             # 1. Without token, should fail with HTTP 401
             os.environ.pop("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN", None)
@@ -610,6 +611,10 @@ class MCPTests(ArchiveTestCase):
             self.assertEqual(received_requests[1]["auth"], "Bearer test-secret-token")
             self.assertEqual(received_requests[1]["body"]["model"], "custom/my-vision-model")
         finally:
+            if old_pa_url is not None:
+                os.environ["PERSONAL_ARCHIVIST_LMSTUDIO_URL"] = old_pa_url
+            else:
+                os.environ.pop("PERSONAL_ARCHIVIST_LMSTUDIO_URL", None)
             if old_url is not None:
                 os.environ["LMSTUDIO_URL"] = old_url
             else:
