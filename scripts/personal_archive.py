@@ -1047,6 +1047,11 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--confirm", action="store_true")
     sub.add_parser("doctor")
+    p = sub.add_parser("reindex")
+    p.add_argument("--record", help="Optional specific record ID to reindex")
+    p.add_argument("--dry-run", action="store_true", help="Simulate without writing")
+    p.add_argument("--force", action="store_true", help="Allow updating automated facts")
+    p.add_argument("--timeout", type=int, default=60, help="Vision request timeout in seconds")
     a = ap.parse_args()
     try:
         configure_root()
@@ -1086,6 +1091,17 @@ def main():
             emit(prebuild(a.dry_run, a.confirm))
         if a.cmd == "doctor":
             emit(doctor())
+        if a.cmd == "reindex":
+            import reindex_archive
+            emit(
+                reindex_archive.reindex_all(
+                    record_id=a.record,
+                    dry_run=a.dry_run,
+                    force=a.force,
+                    timeout=a.timeout,
+                    verbose=False,
+                )
+            )
     except Exception as e:
         emit({"ok": False, "error": type(e).__name__, "detail": str(e)}, 1)
 

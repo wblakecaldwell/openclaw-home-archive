@@ -31,6 +31,7 @@ class InstallTests(unittest.TestCase):
             "scripts/mcp_server.py",
             "scripts/check_openclaw.py",
             "scripts/manage_directives.py",
+            "scripts/reindex_archive.py",
             "openclaw/main-routing-instructions.md",
         ):
             shutil.copy2(PROJECT / name, self.source / name)
@@ -103,6 +104,8 @@ class InstallTests(unittest.TestCase):
         self.assertTrue(os.access(self.destination / "scripts/mcp_server.py", os.X_OK))
         self.assertTrue((self.destination / "scripts/manage_directives.py").exists())
         self.assertTrue(os.access(self.destination / "scripts/manage_directives.py", os.X_OK))
+        self.assertTrue((self.destination / "scripts/reindex_archive.py").exists())
+        self.assertTrue(os.access(self.destination / "scripts/reindex_archive.py", os.X_OK))
 
         # 2. Dedicated agent workspace provisioned
         self.assertTrue(self.agent_ws.exists())
@@ -131,6 +134,7 @@ class InstallTests(unittest.TestCase):
                 "scripts/personal_archive.py",
                 "scripts/mcp_server.py",
                 "scripts/manage_directives.py",
+                "scripts/reindex_archive.py",
             },
         )
         for name in files:
@@ -146,6 +150,9 @@ class InstallTests(unittest.TestCase):
         )
         self.assertTrue(
             os.access(self.destination / "scripts/manage_directives.py", os.X_OK)
+        )
+        self.assertTrue(
+            os.access(self.destination / "scripts/reindex_archive.py", os.X_OK)
         )
         self.assertEqual(list(self.destination.parent.iterdir()), [self.destination])
 
@@ -428,6 +435,12 @@ class InstallTests(unittest.TestCase):
         after_un = main_agents.read_text()
         self.assertEqual(after_un, "# Custom User Directives\nBe helpful and concise.\n")
         self.assertNotIn("<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->", after_un)
+
+    def test_install_with_reindex_flag(self):
+        res = self.install(args=("--reindex", "--dry-run"), success=True)
+        self.assertIn("Reindexing Personal Archive records", res.stdout)
+        self.assertIn("Reindexing Summary", res.stdout)
+        self.assertTrue((self.destination / "scripts/reindex_archive.py").exists())
 
 
 if __name__ == "__main__":

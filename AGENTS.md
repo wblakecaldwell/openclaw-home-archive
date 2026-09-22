@@ -262,6 +262,7 @@ It exposes operations including:
     photos-sync [--dry-run]
     photos-rebuild [--dry-run|--confirm]
     doctor
+    reindex [--record ARCHIVE-...] [--dry-run] [--force]
 
 Preserve compatibility unless there is a compelling reason not to.
 

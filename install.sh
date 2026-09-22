@@ -13,6 +13,10 @@ MAIN_AGENTS="${MAIN_AGENTS_FILE:-${MAIN_WORKSPACE:-$HOME/.openclaw/workspace}/AG
 archive_root=""
 mode="install"
 update_agents_context="false"
+reindex="false"
+dry_run="false"
+force="false"
+record_id=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,6 +40,26 @@ while [[ $# -gt 0 ]]; do
       MAIN_AGENTS="$2"
       shift 2
       ;;
+    --reindex)
+      reindex="true"
+      shift
+      ;;
+    --dry-run)
+      dry_run="true"
+      shift
+      ;;
+    --force)
+      force="true"
+      shift
+      ;;
+    --record)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "--record requires a record ID argument." >&2
+        exit 1
+      fi
+      record_id="$2"
+      shift 2
+      ;;
     --check)
       mode="check"
       shift
@@ -51,6 +75,10 @@ while [[ $# -gt 0 ]]; do
       echo '  --archive-root <path>     Specify absolute archive directory to initialize or verify'
       echo '  --update-agents-context   Install or update Personal Archive routing directives in main AGENTS.md'
       echo '  --main-agents-file <path> Path to main agent AGENTS.md (default: ~/.openclaw/workspace/AGENTS.md)'
+      echo '  --reindex                 Reindex archive records with local Gemma 4 vision to backfill facts/keywords'
+      echo '  --dry-run                 Simulate reindexing without writing any changes to disk (used with --reindex)'
+      echo '  --force                   Allow vision model to supersede automated facts (used with --reindex)'
+      echo '  --record <id>             Reindex a specific record ID instead of the entire archive'
       echo '  --check                   Read-only inspection of OpenClaw Personal Archive integration health'
       echo '  --uninstall               Safely remove Personal Archive software artifacts (preserves archive data)'
       echo '  --help, -h                Show this help message'
@@ -181,6 +209,10 @@ if [[ -f "$SRC/scripts/manage_directives.py" ]]; then
   cp "$SRC/scripts/manage_directives.py" "$staged_skill/scripts/manage_directives.py"
   chmod +x "$staged_skill/scripts/manage_directives.py"
 fi
+if [[ -f "$SRC/scripts/reindex_archive.py" ]]; then
+  cp "$SRC/scripts/reindex_archive.py" "$staged_skill/scripts/reindex_archive.py"
+  chmod +x "$staged_skill/scripts/reindex_archive.py"
+fi
 
 # If DEST is a symlink, remove only the link, leaving its target untouched.
 rm -rf -- "$DEST"
@@ -275,4 +307,32 @@ else
   echo ""
   echo "Once configured, verify integration health with:"
   echo "    ./install.sh --check"
+fi
+
+# 6. Reindex archive records if requested
+if [[ "$reindex" == "true" ]]; then
+  echo ""
+  echo "==> Reindexing Personal Archive records with local vision model..."
+  reindex_target_root="${expanded_root:-${resolved_archive_root:-}}"
+  if [[ -z "$reindex_target_root" && -n "${PERSONAL_ARCHIVE_ROOT:-}" ]]; then
+    reindex_target_root="$PERSONAL_ARCHIVE_ROOT"
+  fi
+  reindex_cmd=(python3 "$DEST/scripts/reindex_archive.py")
+  if [[ -n "$reindex_target_root" ]]; then
+    reindex_cmd+=(--root "$reindex_target_root")
+  fi
+  if [[ "$dry_run" == "true" ]]; then
+    reindex_cmd+=(--dry-run)
+  fi
+  if [[ "$force" == "true" ]]; then
+    reindex_cmd+=(--force)
+  fi
+  if [[ -n "$record_id" ]]; then
+    reindex_cmd+=(--record "$record_id")
+  fi
+  if [[ -n "$reindex_target_root" ]]; then
+    PERSONAL_ARCHIVE_ROOT="$reindex_target_root" "${reindex_cmd[@]}"
+  else
+    "${reindex_cmd[@]}"
+  fi
 fi
