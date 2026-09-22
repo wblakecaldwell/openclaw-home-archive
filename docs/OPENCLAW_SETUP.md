@@ -26,22 +26,37 @@ You can run `./install.sh --check` at any time to inspect what is currently conf
 
 These configuration entries belong strictly to Personal Archive and do not alter main agent behavior or global OpenClaw policies.
 
-### 1. Set Archive Location for the Skill
+#### 1. Set Archive Location for the Skill
 Set the path to the durable personal archive outside this repository:
 ```bash
 openclaw config set skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT "~/Documents/OpenClaw/PersonalArchive"
 ```
 
-### 2. Register the Dedicated `archivist` Agent
-Register the isolated agent definition:
+### 2. Register the Native MCP Server
+Register Personal Archive as a native Model Context Protocol (MCP) server over stdio:
+```bash
+openclaw config set mcp.servers.personal-archive '{
+  "command": "python3",
+  "args": ["~/.openclaw/workspace/skills/personal-archive/scripts/mcp_server.py"],
+  "env": {
+    "PERSONAL_ARCHIVE_ROOT": "~/Documents/OpenClaw/PersonalArchive"
+  }
+}' --strict-json
+```
+
+### 3. Register the Dedicated `archivist` Agent
+Register the isolated agent definition. Notice that raw shell execution (`exec`) and filesystem write (`write`) are denied. The agent interacts with the archive exclusively via native MCP tools (`personal-archive/*`) and inspects visual evidence using the `image` tool:
 ```bash
 openclaw config set agents.entries.archivist '{
   "name": "Archivist",
   "description": "Isolated factual agent responsible for durable personal records and evidence.",
+  "model": "lmstudio/google/gemma-4-e4b",
   "workspace": "~/.openclaw/workspaces/archivist",
   "tools": {
-    "allow": ["read", "write", "exec", "image"],
+    "allow": ["read", "image", "personal-archive/*"],
     "deny": [
+      "exec",
+      "write",
       "group:sessions",
       "group:memory",
       "web_search",
@@ -64,13 +79,16 @@ openclaw config set agents.entries.archivist '{
 
 **Why each setting matters:**
 - `workspace`: Points to `~/.openclaw/workspaces/archivist`, provisioned by `./install.sh`. It contains domain directives (`AGENTS.md`) and persona (`IDENTITY.md`), but strictly **no** conversational `MEMORY.md`.
+- `model`: Points to a lightweight, local image-aware model (such as `lmstudio/google/gemma-4-e4b`) to inspect evidence photos and extract structured facts without cloud API costs.
+- `tools.allow`: Grants access to `read` and `image` (for viewing input evidence) and `personal-archive/*` native MCP tools.
 - `tools.deny`:
+  - `exec` and `write` prevent the agent from formulating arbitrary bash commands or mutating intermediate files.
   - `group:sessions` blocks `sessions_list` and session inspection tools, preventing the agent from seeing parent transcripts.
   - `group:memory` blocks access to memory embeddings and chat history summaries.
   - `web_search`, `browser`, `edit` prevent unneeded external interactions.
 - `memory.search.rememberAcrossConversations: false`: Disables cross-conversation memory searching for this agent.
-- `subagents.allowAgents: []`: Combined with denying `group:sessions`, this guarantees `archivist` cannot spawn any subagents (functioning strictly as a leaf worker). Note: in OpenClaw's schema, `maxSpawnDepth` is a gateway/defaults key (`agents.defaults.subagents.maxSpawnDepth`), not a per-agent key under `agents.entries`.
-- `skills: ["personal-archive"]`: Grants permission to execute `personal_archive.py`.
+- `subagents.allowAgents: []`: Combined with denying `group:sessions`, this guarantees `archivist` cannot spawn any subagents (functioning strictly as a leaf worker).
+- `skills: ["personal-archive"]`: Grants permission to reference the skill documentation.
 
 ---
 

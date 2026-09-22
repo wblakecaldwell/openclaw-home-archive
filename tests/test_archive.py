@@ -1,5 +1,6 @@
 import hashlib
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 from tests.support import ArchiveTestCase
@@ -220,4 +221,59 @@ class ArchiveTests(ArchiveTestCase):
                 self.assertFalse(self.archive.is_attachment_id(bad_att))
                 with self.assertRaises(ValueError):
                     self.archive.find_att(bad_att)
+
+    def test_preflight_attachment_validation_fails_before_id_allocation(self):
+        before_seq = self.archive.next_id("entity")
+        self.assertEqual(before_seq, "ARCHIVE-20260920-0001")
+        bad_spec = {
+            "title": "Bad attachment record",
+            "attachments": [{"path": "/path/to/nonexistent/file.jpg"}],
+        }
+        with self.assertRaises(FileNotFoundError):
+            self.archive.create(bad_spec)
+        # Verify sequence was NOT advanced
+        next_entity = self.archive.next_id("entity")
+        self.assertEqual(next_entity, "ARCHIVE-20260920-0002")
+        # Verify records directory is clean
+        records = list((self.root / "records").iterdir())
+        self.assertEqual(records, [])
+
+    def test_atomic_create_cleans_staging_and_rolls_back_on_failure(self):
+        self.archive.init()
+        source = self.source("test.txt")
+        spec = {
+            "title": "Failing record",
+            "attachments": [{"path": str(source)}],
+        }
+        # Force a failure during the atomic commit stage (replace)
+        with patch.object(Path, "replace", side_effect=OSError("disk error")):
+            with self.assertRaises(OSError):
+                self.archive.create(spec)
+        # Sequence must be rolled back to 0 so next create gets 0001
+        self.assertEqual(self.archive.next_id("entity"), "ARCHIVE-20260920-0001")
+        # No partial records left in records/
+        self.assertEqual(list((self.root / "records").iterdir()), [])
+        # Staging is cleaned up
+        if (self.root / "staging").exists():
+            self.assertEqual(list((self.root / "staging").iterdir()), [])
+
+    def test_archive_root_inside_openclaw_workspace_is_rejected(self):
+        fake_ws = Path.home() / ".openclaw" / "workspaces" / "archivist"
+        with patch.dict(self.archive.os.environ, {"PERSONAL_ARCHIVE_ROOT": str(fake_ws)}):
+            with self.assertRaises(ValueError) as cm:
+                self.archive.configure_root()
+            self.assertIn("cannot point to an OpenClaw agent workspace", str(cm.exception))
+
+    def test_doctor_detects_skeletal_uncommitted_directories(self):
+        skeletal = self.root / "records" / "ARCHIVE-20260920-0099"
+        skeletal.mkdir(parents=True, exist_ok=True)
+        (skeletal / "attachments").mkdir(exist_ok=True)
+        with patch.object(self.archive, "photos_ok", return_value=(False, "test")):
+            result = self.archive.doctor()
+            self.assertFalse(result["ok"])
+            self.assertTrue(
+                any("skeletal or incomplete record directory" in p for p in result["problems"]),
+                result["problems"],
+            )
+
 

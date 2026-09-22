@@ -144,6 +144,10 @@ cp "$SRC/SKILL.md" "$staged_skill/SKILL.md"
 cp "$SRC/README.md" "$staged_skill/README.md"
 cp "$SRC/scripts/personal_archive.py" "$staged_skill/scripts/personal_archive.py"
 chmod +x "$staged_skill/scripts/personal_archive.py"
+if [[ -f "$SRC/scripts/mcp_server.py" ]]; then
+  cp "$SRC/scripts/mcp_server.py" "$staged_skill/scripts/mcp_server.py"
+  chmod +x "$staged_skill/scripts/mcp_server.py"
+fi
 
 # If DEST is a symlink, remove only the link, leaving its target untouched.
 rm -rf -- "$DEST"

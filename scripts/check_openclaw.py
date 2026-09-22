@@ -60,6 +60,8 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
         (skill_path / "SKILL.md").exists()
         and (skill_path / "scripts/personal_archive.py").exists()
         and os.access(skill_path / "scripts/personal_archive.py", os.X_OK)
+        and (skill_path / "scripts/mcp_server.py").exists()
+        and os.access(skill_path / "scripts/mcp_server.py", os.X_OK)
     )
     results.append((f"Personal Archive skill installed ({skill_dir})", skill_ok, "critical"))
 

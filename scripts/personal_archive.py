@@ -14,22 +14,41 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
-ROOT = RECORDS = TRASH = STATE = SEQ = None
+ROOT = RECORDS = TRASH = STATE = SEQ = STAGING = None
 
 
 def configure_root():
     """Resolve required runtime configuration without choosing a fallback location."""
-    global ROOT, RECORDS, TRASH, STATE, SEQ
+    global ROOT, RECORDS, TRASH, STATE, SEQ, STAGING
     value = os.environ.get("PERSONAL_ARCHIVE_ROOT")
     if not value or not value.strip():
         raise ValueError("No archive directory configured. Set PERSONAL_ARCHIVE_ROOT.")
     root = Path(os.path.expanduser(value))
     if not root.is_absolute() or "<archive-root>" in value:
         raise ValueError("PERSONAL_ARCHIVE_ROOT must be an absolute archive path.")
+
+    # Guard against using an OpenClaw agent workspace or skill directory as an archive root
+    resolved_str = str(root.resolve())
+    if (
+        "/.openclaw/workspaces/" in resolved_str
+        or "/.openclaw/workspace/skills" in resolved_str
+        or resolved_str.endswith("/.openclaw/workspaces/archivist")
+    ):
+        raise ValueError(
+            f"PERSONAL_ARCHIVE_ROOT cannot point to an OpenClaw agent workspace ({root}). "
+            "Agent workspaces and the archive root are separate concepts."
+        )
+
     ROOT = root
-    RECORDS, TRASH, STATE = root / "records", root / "trash", root / "state"
+    RECORDS, TRASH, STATE, STAGING = (
+        root / "records",
+        root / "trash",
+        root / "state",
+        root / "staging",
+    )
     SEQ = STATE / "sequence.json"
 
 
@@ -110,8 +129,9 @@ def append_jsonl(p, x):
 
 def init():
     """Create missing archive directories and initial state without resetting them."""
-    for p in (RECORDS, TRASH, STATE):
-        p.mkdir(parents=True, exist_ok=True)
+    for p in (RECORDS, TRASH, STATE, STAGING):
+        if p is not None:
+            p.mkdir(parents=True, exist_ok=True)
     if not SEQ.exists():
         atomic_json(SEQ, {"date": today(), "entity": 0, "attachment": 0})
     if not (ROOT / "README.md").exists():
@@ -119,6 +139,19 @@ def init():
             "# Personal Archive\n\nManaged by OpenClaw Personal Archive.\n"
         )
     return {"ok": True, "root": str(ROOT)}
+
+
+def clean_staging(max_age_seconds=3600):
+    """Clean up old temporary directories left in staging."""
+    if not STAGING or not STAGING.exists():
+        return
+    cutoff = dt.datetime.now().timestamp() - max_age_seconds
+    for p in STAGING.glob("stage-*"):
+        try:
+            if p.is_dir() and p.stat().st_mtime < cutoff:
+                shutil.rmtree(p, ignore_errors=True)
+        except Exception:
+            pass
 
 
 def next_id(kind):
@@ -156,7 +189,7 @@ def facts(m):
     return {f["key"]: f for f in m.get("facts", []) if f.get("active", True)}
 
 
-def render(m):
+def render(m, base_dir=None):
     """Regenerate the readable Markdown view from record metadata."""
     fs = facts(m)
     L = [
@@ -195,14 +228,15 @@ def render(m):
         L += ["## Notes / source messages", ""]
         L += [f"- {n.get('at','')}: {n.get('text','')}" for n in m["notes"]]
         L.append("")
-    (rdir(m["id"]) / "record.md").write_text("\n".join(L), encoding="utf-8")
+    d = base_dir if base_dir is not None else rdir(m["id"])
+    (d / "record.md").write_text("\n".join(L), encoding="utf-8")
 
 
-def save(m):
+def save(m, base_dir=None):
     """Persist metadata, then regenerate its Markdown view."""
-    # Atomic replacement covers metadata only, not the entire multi-file mutation.
-    atomic_json(rdir(m["id"]) / "metadata.json", m)
-    render(m)
+    d = base_dir if base_dir is not None else rdir(m["id"])
+    atomic_json(d / "metadata.json", m)
+    render(m, base_dir=d)
 
 
 def sha(p):
@@ -217,6 +251,23 @@ def sha(p):
 def slug(s):
     """Produce a bounded filename component while retaining common extensions."""
     return (re.sub(r"[^A-Za-z0-9._-]+", "-", s).strip("-") or "attachment")[:100]
+
+
+def normalize_facts(raw):
+    """Normalize facts whether specified as a list of dicts or a key-value mapping."""
+    if isinstance(raw, dict):
+        res = []
+        for k, v in raw.items():
+            if isinstance(v, dict):
+                item = dict(v)
+                item.setdefault("key", k)
+                res.append(item)
+            else:
+                res.append({"key": k, "value": str(v)})
+        return res
+    if isinstance(raw, list):
+        return raw
+    return []
 
 
 def add_fact(m, f):
@@ -250,15 +301,69 @@ def known_hashes():
     return o
 
 
-def add_atts(m, specs):
+def resolve_attachment_path(raw: str) -> Path:
+    """Resolve an attachment path, supporting OpenClaw inbound media URIs and relative paths."""
+    raw = str(raw).strip()
+    openclaw_media = (
+        Path(os.environ.get("OPENCLAW_HOME", os.path.expanduser("~/.openclaw")))
+        / "media/inbound"
+    )
+
+    if raw.startswith("media://inbound/"):
+        rel = raw[len("media://inbound/") :]
+        return (openclaw_media / rel).resolve()
+    if raw.startswith("media://"):
+        rel = raw[len("media://") :]
+        return (openclaw_media / rel).resolve()
+
+    p = Path(os.path.expanduser(raw)).resolve()
+    if p.is_file():
+        return p
+
+    if raw.startswith("media/inbound/"):
+        rel = raw[len("media/inbound/") :]
+        cand = (openclaw_media / rel).resolve()
+        if cand.is_file():
+            return cand
+
+    if not p.is_file() and "/" not in raw and "\\" not in raw:
+        cand = (openclaw_media / raw).resolve()
+        if cand.is_file():
+            return cand
+
+    return p
+
+
+def validate_attachment_specs(specs):
+    """Validate all attachment specifications and ensure source files exist and are readable."""
+    resolved = []
+    for s in specs or []:
+        if not isinstance(s, dict):
+            raise ValueError(f"Invalid attachment specification: {s}")
+        raw_path = s.get("path")
+        if not raw_path or not str(raw_path).strip():
+            raise ValueError(f"Attachment specification missing 'path': {s}")
+        src = resolve_attachment_path(raw_path)
+        if not src.is_file():
+            raise FileNotFoundError(
+                f"Attachment source file not found: {raw_path} (resolved to {src})"
+            )
+        if not os.access(src, os.R_OK):
+            raise PermissionError(f"Attachment source file not readable: {src}")
+        resolved.append((s, src))
+    return resolved
+
+
+def add_atts(m, specs, base_dir=None):
     """Copy new originals and return added metadata plus archive-wide duplicates."""
     known = known_hashes()
     added = []
     dup = []
-    ad = rdir(m["id"]) / "attachments"
+    target_rec_dir = base_dir if base_dir is not None else rdir(m["id"])
+    ad = target_rec_dir / "attachments"
     ad.mkdir(parents=True, exist_ok=True)
     for s in specs or []:
-        src = Path(os.path.expanduser(s["path"])).resolve()
+        src = resolve_attachment_path(s["path"])
         if not src.is_file():
             raise FileNotFoundError(str(src))
         h = sha(src)
@@ -276,7 +381,7 @@ def add_atts(m, specs):
         a = {
             "id": aid,
             "filename": src.name,
-            "stored_relpath": str(dst.relative_to(rdir(m["id"]))),
+            "stored_relpath": str(dst.relative_to(target_rec_dir)),
             "sha256": h,
             "size": dst.stat().st_size,
             "mime": mime,
@@ -296,51 +401,102 @@ def add_atts(m, specs):
 
 
 def spec(path):
-    """Read a staged JSON operation spec; this does not archive anything."""
+    """Read a staged JSON operation spec; supports file path or inline JSON string."""
+    raw = str(path).strip()
+    if raw.startswith("{") and raw.endswith("}"):
+        return json.loads(raw)
     return json.loads(Path(path).read_text())
 
 
 def create(s):
-    """Create an entity, copy its evidence, and append its initial event."""
+    """Create an entity atomically in staging, copy its evidence, and commit upon success."""
+    if not isinstance(s, dict):
+        raise ValueError("Operation spec must be a JSON object.")
+
+    init()
+    # 1. Pre-flight validate all attachment specs before allocating any sequence IDs
+    validate_attachment_specs(s.get("attachments", []))
+
+    # 2. Snapshot sequence state for rollback in case of error during construction
+    seq_snapshot = json.loads(SEQ.read_text())
+
+    # 3. Allocate next entity ID and prepare staging directory
     e = next_id("entity")
-    rdir(e).mkdir(parents=True)
-    t = now()
-    m = {
-        "schema_version": 1,
+    stage_dir = STAGING / f"stage-create-{e}-{uuid.uuid4().hex[:8]}"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    dest = rdir(e)
+
+    try:
+        t = now()
+        m = {
+            "schema_version": 1,
+            "id": e,
+            "title": s.get("title") or e,
+            "summary": s.get("summary", ""),
+            "event_date": s.get("event_date"),
+            "created_at": t,
+            "updated_at": t,
+            "deleted": False,
+            "keywords": list(dict.fromkeys(s.get("keywords", []))),
+            "facts": [],
+            "attachments": [],
+            "notes": [],
+        }
+        if s.get("user_text"):
+            m["notes"].append({"at": t, "text": s["user_text"], "source": "user"})
+        for f in normalize_facts(s.get("facts", [])):
+            add_fact(m, f)
+        aa, dd = add_atts(m, s.get("attachments", []), base_dir=stage_dir)
+        save(m, base_dir=stage_dir)
+        append_jsonl(
+            stage_dir / "events.jsonl",
+            {
+                "at": t,
+                "type": "create",
+                "spec": s,
+                "attachment_ids": [a["id"] for a in aa],
+                "duplicates": dd,
+            },
+        )
+        # 4. Atomic commit: rename staged directory into authoritative records directory
+        stage_dir.replace(dest)
+    except Exception:
+        # On failure, clean up staging and rollback sequence state so no partial record or sequence gap is left
+        if stage_dir.exists():
+            shutil.rmtree(stage_dir, ignore_errors=True)
+        if dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+        atomic_json(SEQ, seq_snapshot)
+        raise
+
+    return {
+        "ok": True,
+        "operation": "create",
         "id": e,
-        "title": s.get("title") or e,
-        "summary": s.get("summary", ""),
-        "event_date": s.get("event_date"),
-        "created_at": t,
-        "updated_at": t,
-        "deleted": False,
-        "keywords": list(dict.fromkeys(s.get("keywords", []))),
-        "facts": [],
-        "attachments": [],
-        "notes": [],
+        "path": str(dest),
+        "record": m,
+        "attachments_added": aa,
+        "duplicates": dd,
     }
-    if s.get("user_text"):
-        m["notes"].append({"at": t, "text": s["user_text"], "source": "user"})
-    for f in s.get("facts", []):
-        add_fact(m, f)
-    aa, dd = add_atts(m, s.get("attachments", []))
-    save(m)
-    append_jsonl(
-        rdir(e) / "events.jsonl",
-        {
-            "at": t,
-            "type": "create",
-            "spec": s,
-            "attachment_ids": [a["id"] for a in aa],
-            "duplicates": dd,
-        },
-    )
-    return {"ok": True, "record": m, "attachments_added": aa, "duplicates": dd}
 
 
 def add(e, s):
     """Apply additional facts, notes, and evidence to an existing entity."""
+    if not isinstance(s, dict):
+        raise ValueError("Operation spec must be a JSON object.")
     m = load(e)
+    init()
+    # 1. Pre-flight validate attachments before modifying existing record or allocating IDs
+    validate_attachment_specs(s.get("attachments", []))
+
+    seq_snapshot = json.loads(SEQ.read_text())
+    orig_meta = json.loads((rdir(e) / "metadata.json").read_text())
+    orig_events_size = (
+        (rdir(e) / "events.jsonl").stat().st_size
+        if (rdir(e) / "events.jsonl").exists()
+        else 0
+    )
+
     t = now()
     for k in ("title", "summary", "event_date"):
         if s.get(k):
@@ -350,22 +506,42 @@ def add(e, s):
             {"at": t, "text": s["user_text"], "source": "user"}
         )
     m["keywords"] = list(dict.fromkeys(m.get("keywords", []) + s.get("keywords", [])))
-    for f in s.get("facts", []):
+    for f in normalize_facts(s.get("facts", [])):
         add_fact(m, f)
-    aa, dd = add_atts(m, s.get("attachments", []))
-    m["updated_at"] = t
-    save(m)
-    append_jsonl(
-        rdir(e) / "events.jsonl",
-        {
-            "at": t,
-            "type": "add",
-            "spec": s,
-            "attachment_ids": [a["id"] for a in aa],
-            "duplicates": dd,
-        },
-    )
-    return {"ok": True, "record": m, "attachments_added": aa, "duplicates": dd}
+
+    try:
+        aa, dd = add_atts(m, s.get("attachments", []))
+        m["updated_at"] = t
+        save(m)
+        append_jsonl(
+            rdir(e) / "events.jsonl",
+            {
+                "at": t,
+                "type": "add",
+                "spec": s,
+                "attachment_ids": [a["id"] for a in aa],
+                "duplicates": dd,
+            },
+        )
+    except Exception:
+        # Rollback metadata and sequence if attachment copy failed midway
+        atomic_json(rdir(e) / "metadata.json", orig_meta)
+        render(orig_meta)
+        atomic_json(SEQ, seq_snapshot)
+        if (rdir(e) / "events.jsonl").exists():
+            with open(rdir(e) / "events.jsonl", "r+", encoding="utf-8") as ef:
+                ef.truncate(orig_events_size)
+        raise
+
+    return {
+        "ok": True,
+        "operation": "add",
+        "id": e,
+        "path": str(rdir(e)),
+        "record": m,
+        "attachments_added": aa,
+        "duplicates": dd,
+    }
 
 
 def text(m):
@@ -781,9 +957,22 @@ def prebuild(dry, confirm):
 def doctor():
     """Initialize the archive and check attachment integrity and Photos availability."""
     init()
+    clean_staging()
     probs = []
     rc = ac = 0
     seen = {}
+
+    ws = Path.home() / ".openclaw" / "workspaces"
+    try:
+        if ws.exists() and (ws.resolve() in ROOT.resolve().parents or ws.resolve() == ROOT.resolve()):
+            probs.append(f"archive root {ROOT} is located inside OpenClaw workspace directory {ws}")
+    except Exception:
+        pass
+
+    for p in RECORDS.glob("ARCHIVE-*"):
+        if p.is_dir() and not (p / "metadata.json").exists():
+            probs.append(f"skeletal or incomplete record directory: {p}")
+
     for p in RECORDS.glob("ARCHIVE-*/metadata.json"):
         rc += 1
         try:

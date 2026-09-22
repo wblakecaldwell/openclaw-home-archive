@@ -5,8 +5,9 @@
 // This agent runs in its own workspace without access to conversational chat history,
 // dreaming summaries, or main agent memory files.
 //
-// Verified Schema Note:
-// All keys verified against OpenClaw 2026.9.5 schema.
+// Security & Hardening:
+// Shell execution (exec) and write are denied. The agent interacts with the archive
+// solely via native Model Context Protocol (MCP) tools provided by the personal-archive server.
 
 {
   agents: {
@@ -14,18 +15,18 @@
       "archivist": {
         name: "Archivist",
         description: "Isolated factual agent responsible for durable personal records and evidence.",
-        // [VERIFIED ON OPENCLAW 2026.9.5]:
+        // Lightweight, local image-aware model suitable for structured evidence extraction
+        model: "lmstudio/google/gemma-4-e4b",
         workspace: "~/.openclaw/workspaces/archivist",
         tools: {
-          // [VERIFIED ON OPENCLAW 2026.9.5]: standard tool names
           allow: [
             "read",
-            "write",
-            "exec",
-            "image"
+            "image",
+            "personal-archive/*"
           ],
-          // [VERIFIED ON OPENCLAW 2026.9.5]: denies session manipulation, memory, and browser tools
           deny: [
+            "exec",
+            "write",
             "group:sessions",
             "group:memory",
             "web_search",
@@ -34,18 +35,15 @@
             "apply_patch"
           ]
         },
-        // [VERIFIED ON OPENCLAW 2026.9.5]: exclusive skill scope
         skills: [
           "personal-archive"
         ],
         memory: {
           search: {
-            // [VERIFIED ON OPENCLAW 2026.9.5]: disables cross-conversation memory persistence
             rememberAcrossConversations: false
           }
         },
         subagents: {
-          // [VERIFIED ON OPENCLAW 2026.9.5]: leaf worker cannot spawn any other subagent
           allowAgents: []
         }
       }

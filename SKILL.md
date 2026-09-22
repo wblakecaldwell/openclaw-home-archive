@@ -25,17 +25,31 @@ Domain interpretation belongs here in `archivist`:
 - Assign provenance (`source=user` or attachment basename) and confidence.
 
 ## Rule
-Never manually mutate archive files. Use `python3 {baseDir}/scripts/personal_archive.py ...`. The CLI owns IDs, atomic writes, hashes, event history, dedupe, soft deletion, merges, and Photos reconciliation. Never fabricate `ARCHIVE-...` or `ARCHIVE-ATTACH-...` identifiers. Every mutation requires parsing CLI JSON output and verifying `ok: true`.
+Never manually mutate archive files. When running under OpenClaw, use native Model Context Protocol (MCP) tools (`archive_create`, `archive_search`, `archive_show`, `archive_add_evidence`, `archive_set_fact`, `archive_get_attachment`, `archive_delete`, `archive_doctor`) or the deterministic CLI `python3 {baseDir}/scripts/personal_archive.py ...`. Deterministic code owns IDs, atomic writes, hashes, event history, dedupe, soft deletion, merges, and Photos reconciliation. Never fabricate `ARCHIVE-...` or `ARCHIVE-ATTACH-...` identifiers. Every mutation requires verifying `ok: true`.
 
-## Ingest
-Inspect all supplied attachments. Extract useful durable facts only (brand/model/serial, people/business/contact info, dates, warranty, parts, dimensions, price, invoice/receipt IDs). Every fact needs provenance: `source=user` for explicit user statements or the attachment basename for extracted facts. Prefer omission to guessing. Search before adding when the message may refer to an existing entity.
+## Ingest & Tool Usage
+Inspect all supplied attachments with the `image` tool first. Extract useful durable facts only (brand/model/serial, people/business/contact info, dates, warranty, parts, dimensions, price, invoice/receipt IDs). Every fact needs provenance: `source=user` for explicit user statements or the attachment filename for extracted facts. Prefer omission to guessing. Search before adding when the message may refer to an existing entity.
 
-Create with a temporary JSON spec: `python3 {baseDir}/scripts/personal_archive.py create --spec /tmp/spec.json`. Add later evidence with `... add ARCHIVE-... --spec /tmp/spec.json`. Spec fields: `title`, `summary`, `user_text`, optional `event_date`, `facts` array (`key`,`value`,`source`,`confidence`), `attachments` array (`path`,`role`,`description`, optional `publish_to_photos`), and `keywords`. Image attachments publish to Photos by default.
+Native MCP Tools:
+- `archive_create`: Create record with `title`, `summary`, `user_text`, `event_date`, `facts`, `attachments`, `keywords`.
+- `archive_add_evidence`: Add evidence to existing entity (`id`, `user_text`, `facts`, `attachments`, `keywords`).
+- `archive_search`: Search records by keyword query (`query`, `limit`).
+- `archive_show`: Retrieve full details and history for an entity (`id`).
+- `archive_set_fact`: Set/update a specific fact (`id`, `key`, `value`, `source`, `confidence`).
+- `archive_get_attachment`: Lookup attachment metadata and physical path (`id`).
+- `archive_delete`: Soft-delete an entity (`id`).
+- `archive_doctor`: Run health diagnostics and clean staging.
 
-Corrections: `... set-fact ARCHIVE-... --key KEY --value VALUE --source user --confidence high`. Remove fact: `... remove-fact ARCHIVE-... --key KEY`. Remove attachment: `... remove-attachment ARCHIVE-ATTACH-...`. Soft-delete record: `... delete ARCHIVE-...`. Merge duplicates: `... merge ARCHIVE-CANONICAL ARCHIVE-DUPLICATE`. Reversible operations need no confirmation; report what changed. Never permanently purge originals without explicit confirmation immediately before destruction.
-
-## Recall
-Search: `... search "query" --limit 10`. Show record: `... show ARCHIVE-...`. Resolve original attachment: `... get-attachment ARCHIVE-ATTACH-...`. When asked to show/send an artifact, return the actual original through the channel media/file mechanism, not just a description.
+CLI Equivalent:
+- Create: `python3 {baseDir}/scripts/personal_archive.py create --spec /tmp/spec.json`
+- Add: `python3 {baseDir}/scripts/personal_archive.py add ARCHIVE-... --spec /tmp/spec.json`
+- Corrections: `... set-fact ARCHIVE-... --key KEY --value VALUE --source user --confidence high`
+- Search: `... search "query" --limit 10`
+- Show: `... show ARCHIVE-...`
+- Resolve original attachment: `... get-attachment ARCHIVE-ATTACH-...`
+- Soft-delete record: `... delete ARCHIVE-...`
+- Merge duplicates: `... merge ARCHIVE-CANONICAL ARCHIVE-DUPLICATE`
+- Diagnostics: `... doctor`
 
 ## Photos
 Regular album name: `Personal Archive`. Metadata is generated from archive state and includes title, caption, useful keywords, entity ID, and attachment ID. Normal reconcile: `... photos-sync`; preview with `--dry-run`. Disaster rebuild preview: `... photos-rebuild --dry-run`. Real rebuild requires explicit confirmation, then `... photos-rebuild --confirm`. The Photos deletion code may only touch assets carrying an `ARCHIVE-ATTACH-...` keyword. Photos failure must never roll back authoritative archive ingestion.

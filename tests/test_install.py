@@ -27,6 +27,7 @@ class InstallTests(unittest.TestCase):
             "SKILL.md",
             "README.md",
             "scripts/personal_archive.py",
+            "scripts/mcp_server.py",
             "scripts/check_openclaw.py",
         ):
             shutil.copy2(PROJECT / name, self.source / name)
@@ -95,6 +96,8 @@ class InstallTests(unittest.TestCase):
         self.assertTrue((self.destination / "README.md").exists())
         self.assertTrue((self.destination / "scripts/personal_archive.py").exists())
         self.assertTrue(os.access(self.destination / "scripts/personal_archive.py", os.X_OK))
+        self.assertTrue((self.destination / "scripts/mcp_server.py").exists())
+        self.assertTrue(os.access(self.destination / "scripts/mcp_server.py", os.X_OK))
 
         # 2. Dedicated agent workspace provisioned
         self.assertTrue(self.agent_ws.exists())
@@ -115,7 +118,7 @@ class InstallTests(unittest.TestCase):
             for p in self.destination.rglob("*")
             if p.is_file()
         }
-        self.assertEqual(files, {"SKILL.md", "README.md", "scripts/personal_archive.py"})
+        self.assertEqual(files, {"SKILL.md", "README.md", "scripts/personal_archive.py", "scripts/mcp_server.py"})
         for name in files:
             self.assertEqual(
                 (self.destination / name).read_bytes(),
@@ -123,6 +126,9 @@ class InstallTests(unittest.TestCase):
             )
         self.assertTrue(
             os.access(self.destination / "scripts/personal_archive.py", os.X_OK)
+        )
+        self.assertTrue(
+            os.access(self.destination / "scripts/mcp_server.py", os.X_OK)
         )
         self.assertEqual(list(self.destination.parent.iterdir()), [self.destination])
 
