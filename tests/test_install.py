@@ -22,6 +22,7 @@ class InstallTests(unittest.TestCase):
         self.agent_ws = self.user_home / ".openclaw/workspaces/archivist"
         self.source = self.workspace / "source checkout"
         (self.source / "scripts").mkdir(parents=True)
+        (self.source / "openclaw").mkdir(parents=True, exist_ok=True)
         for name in (
             "install.sh",
             "SKILL.md",
@@ -29,6 +30,8 @@ class InstallTests(unittest.TestCase):
             "scripts/personal_archive.py",
             "scripts/mcp_server.py",
             "scripts/check_openclaw.py",
+            "scripts/manage_directives.py",
+            "openclaw/main-routing-instructions.md",
         ):
             shutil.copy2(PROJECT / name, self.source / name)
         if (PROJECT / "openclaw/workspace-archivist").exists():
@@ -98,6 +101,8 @@ class InstallTests(unittest.TestCase):
         self.assertTrue(os.access(self.destination / "scripts/personal_archive.py", os.X_OK))
         self.assertTrue((self.destination / "scripts/mcp_server.py").exists())
         self.assertTrue(os.access(self.destination / "scripts/mcp_server.py", os.X_OK))
+        self.assertTrue((self.destination / "scripts/manage_directives.py").exists())
+        self.assertTrue(os.access(self.destination / "scripts/manage_directives.py", os.X_OK))
 
         # 2. Dedicated agent workspace provisioned
         self.assertTrue(self.agent_ws.exists())
@@ -118,7 +123,16 @@ class InstallTests(unittest.TestCase):
             for p in self.destination.rglob("*")
             if p.is_file()
         }
-        self.assertEqual(files, {"SKILL.md", "README.md", "scripts/personal_archive.py", "scripts/mcp_server.py"})
+        self.assertEqual(
+            files,
+            {
+                "SKILL.md",
+                "README.md",
+                "scripts/personal_archive.py",
+                "scripts/mcp_server.py",
+                "scripts/manage_directives.py",
+            },
+        )
         for name in files:
             self.assertEqual(
                 (self.destination / name).read_bytes(),
@@ -129,6 +143,9 @@ class InstallTests(unittest.TestCase):
         )
         self.assertTrue(
             os.access(self.destination / "scripts/mcp_server.py", os.X_OK)
+        )
+        self.assertTrue(
+            os.access(self.destination / "scripts/manage_directives.py", os.X_OK)
         )
         self.assertEqual(list(self.destination.parent.iterdir()), [self.destination])
 
@@ -383,8 +400,34 @@ class InstallTests(unittest.TestCase):
         # 2. OpenClaw config must NOT be touched by uninstaller
         self.assertEqual(self.config.read_bytes(), config_before)
 
-        # 3. Main AGENTS.md must NOT be touched by uninstaller
+        # 3. Main AGENTS.md must NOT be touched by default uninstaller
         self.assertEqual(main_agents.read_bytes(), agents_before)
+
+    def test_install_and_uninstall_with_update_agents_context(self):
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text("# Custom User Directives\nBe helpful and concise.\n")
+
+        # 1. Install with --update-agents-context
+        res = self.install(args=("--update-agents-context",), success=True)
+        self.assertIn("Updating main agent routing directives", res.stdout)
+        self.assertTrue(main_agents.exists())
+        content = main_agents.read_text()
+        self.assertIn("# Custom User Directives", content)
+        self.assertIn("<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->", content)
+        self.assertIn("<!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->", content)
+        self.assertIn("sessions_spawn", content)
+
+        # 2. Re-running is idempotent
+        res2 = self.install(args=("--update-agents-context",), success=True)
+        self.assertEqual(main_agents.read_text(), content)
+
+        # 3. Uninstall with --update-agents-context cleans directives while preserving custom content
+        res_un = self.install(args=("--uninstall", "--update-agents-context"), success=True)
+        self.assertIn("Removing routing directives", res_un.stdout)
+        after_un = main_agents.read_text()
+        self.assertEqual(after_un, "# Custom User Directives\nBe helpful and concise.\n")
+        self.assertNotIn("<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->", after_un)
 
 
 if __name__ == "__main__":

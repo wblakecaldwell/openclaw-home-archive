@@ -8,9 +8,11 @@ set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd -P)"
 DEST="${SKILL_DIRECTORY:-$HOME/.openclaw/workspace/skills/personal-archive}"
 AGENT_WS="${AGENT_WORKSPACE:-$HOME/.openclaw/workspaces/archivist}"
+MAIN_AGENTS="${MAIN_AGENTS_FILE:-${MAIN_WORKSPACE:-$HOME/.openclaw/workspace}/AGENTS.md}"
 
 archive_root=""
 mode="install"
+update_agents_context="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -20,6 +22,18 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       archive_root="$2"
+      shift 2
+      ;;
+    --update-agents-context|--update-main-directives)
+      update_agents_context="true"
+      shift
+      ;;
+    --main-agents-file)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "--main-agents-file requires a non-empty path." >&2
+        exit 1
+      fi
+      MAIN_AGENTS="$2"
       shift 2
       ;;
     --check)
@@ -34,10 +48,12 @@ while [[ $# -gt 0 ]]; do
       echo 'Usage: ./install.sh [options]'
       echo ''
       echo 'Options:'
-      echo '  --archive-root <path>  Specify absolute archive directory to initialize or verify'
-      echo '  --check                Read-only inspection of OpenClaw Personal Archive integration health'
-      echo '  --uninstall            Safely remove Personal Archive software artifacts (preserves archive data)'
-      echo '  --help, -h             Show this help message'
+      echo '  --archive-root <path>     Specify absolute archive directory to initialize or verify'
+      echo '  --update-agents-context   Install or update Personal Archive routing directives in main AGENTS.md'
+      echo '  --main-agents-file <path> Path to main agent AGENTS.md (default: ~/.openclaw/workspace/AGENTS.md)'
+      echo '  --check                   Read-only inspection of OpenClaw Personal Archive integration health'
+      echo '  --uninstall               Safely remove Personal Archive software artifacts (preserves archive data)'
+      echo '  --help, -h                Show this help message'
       exit 0
       ;;
     *)
@@ -52,7 +68,7 @@ command -v python3 >/dev/null || { echo 'python3 must be installed and on PATH.'
 
 # Handle --check mode (purely read-only inspection)
 if [[ "$mode" == "check" ]]; then
-  check_args=(--skill-directory "$DEST" --workspace-directory "$AGENT_WS")
+  check_args=(--skill-directory "$DEST" --workspace-directory "$AGENT_WS" --main-agents-file "$MAIN_AGENTS")
   if [[ -n "$archive_root" ]]; then
     check_args+=(--archive-root "$archive_root")
   fi
@@ -76,6 +92,14 @@ if [[ "$mode" == "uninstall" ]]; then
     echo "    Removed agent workspace: $AGENT_WS"
   fi
 
+  # 3. If requested, remove routing directives from main AGENTS.md
+  if [[ "$update_agents_context" == "true" ]]; then
+    if [[ -f "$SRC/scripts/manage_directives.py" ]]; then
+      echo "    Removing routing directives from: $MAIN_AGENTS"
+      python3 "$SRC/scripts/manage_directives.py" remove --target "$MAIN_AGENTS"
+    fi
+  fi
+
   # Determine archive root read-only for reporting
   configured_root=""
   if [[ -n "$archive_root" ]]; then
@@ -93,8 +117,13 @@ if [[ "$mode" == "uninstall" ]]; then
   fi
   echo "NOTE: Apple Photos assets were preserved untouched."
   echo ""
-  echo "OpenClaw configuration and main agent directives may still reference Personal Archive."
-  echo "To remove those OpenClaw references, please follow:"
+  if [[ "$update_agents_context" == "true" ]]; then
+    echo "Personal Archive routing directives removed from main AGENTS.md."
+  else
+    echo "OpenClaw configuration and main agent directives may still reference Personal Archive."
+    echo "To remove main agent directives automatically, rerun with --update-agents-context."
+  fi
+  echo "To remove remaining OpenClaw configuration entries, please follow:"
   echo "    docs/OPENCLAW_SETUP.md#uninstall"
   exit 0
 fi
@@ -148,6 +177,10 @@ if [[ -f "$SRC/scripts/mcp_server.py" ]]; then
   cp "$SRC/scripts/mcp_server.py" "$staged_skill/scripts/mcp_server.py"
   chmod +x "$staged_skill/scripts/mcp_server.py"
 fi
+if [[ -f "$SRC/scripts/manage_directives.py" ]]; then
+  cp "$SRC/scripts/manage_directives.py" "$staged_skill/scripts/manage_directives.py"
+  chmod +x "$staged_skill/scripts/manage_directives.py"
+fi
 
 # If DEST is a symlink, remove only the link, leaving its target untouched.
 rm -rf -- "$DEST"
@@ -161,6 +194,14 @@ if [[ -d "$SRC/openclaw/workspace-archivist" ]]; then
   cp "$SRC/openclaw/workspace-archivist/IDENTITY.md" "$AGENT_WS/IDENTITY.md"
   rm -f "$AGENT_WS/MEMORY.md" "$AGENT_WS/USER.md"
   echo "Provisioned agent workspace at: $AGENT_WS"
+fi
+
+# 3b. Install / update main agent routing directives if requested
+if [[ "$update_agents_context" == "true" ]]; then
+  echo "Updating main agent routing directives in: $MAIN_AGENTS"
+  python3 "$SRC/scripts/manage_directives.py" install \
+    --target "$MAIN_AGENTS" \
+    --source "$SRC/openclaw/main-routing-instructions.md"
 fi
 
 # 4. Handle Archive Root (Initialize or Preserve; NEVER delete)
@@ -210,7 +251,7 @@ fi
 
 echo ""
 # 5. Tell the user whether OpenClaw integration is complete
-check_args=(--skill-directory "$DEST" --workspace-directory "$AGENT_WS" --summary)
+check_args=(--skill-directory "$DEST" --workspace-directory "$AGENT_WS" --main-agents-file "$MAIN_AGENTS" --summary)
 if [[ -n "$resolved_archive_root" ]]; then
   check_args+=(--archive-root "$resolved_archive_root")
 fi

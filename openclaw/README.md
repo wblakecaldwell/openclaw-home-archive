@@ -15,10 +15,10 @@ User / iMessage
 main agent
   - Owns conversational interface and chat history
   - Resolves conversation-dependent references (e.g. "it" -> "the bike")
-  - Delegates via sessions(action="spawn", agentId="archivist", context="isolated", ...)
+  - Delegates via sessions_spawn(agentId="archivist", context="isolated", ...)
   - Relays verified results via relay_message; does not synthesize from memory
       │
-      │ sessions(action: "spawn", agentId: "archivist", context: "isolated")
+      │ sessions_spawn(agentId: "archivist", context: "isolated")
       ▼
 dedicated agent: "archivist" (Archivist)
   - Dedicated workspace (~/.openclaw/workspaces/archivist)

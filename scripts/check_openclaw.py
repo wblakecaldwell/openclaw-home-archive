@@ -47,7 +47,7 @@ def config_get(key):
         return stdout
 
 
-def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
+def check(archive_root_arg, skill_dir, workspace_dir, main_agents_path=None, summary_only=False):
     results = []
 
     # 1. OpenClaw CLI available
@@ -220,15 +220,18 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
     results.append(("Active Memory plugin excludes 'archivist'", am_ok, "critical"))
 
     # 18. Main workspace AGENTS.md has routing directives
-    openclaw_dir = get_openclaw_dir()
-    main_agents_file = openclaw_dir / "workspace/AGENTS.md"
+    if main_agents_path:
+        main_agents_file = Path(os.path.expanduser(main_agents_path))
+    else:
+        openclaw_dir = get_openclaw_dir()
+        main_agents_file = openclaw_dir / "workspace/AGENTS.md"
     routing_found = False
     if main_agents_file.exists():
         text = main_agents_file.read_text()
         if ROUTING_MARKER in text and "archivist" in text:
             routing_found = True
     results.append(
-        ("Main workspace AGENTS.md contains Personal Archive routing directives", routing_found, "critical")
+        (f"Main workspace AGENTS.md contains Personal Archive routing directives ({main_agents_file})", routing_found, "critical")
     )
 
     # Evaluation
@@ -274,13 +277,14 @@ def main():
     parser.add_argument("--archive-root", help="Explicit archive root directory to check")
     parser.add_argument("--skill-directory", default=os.environ.get("SKILL_DIRECTORY"))
     parser.add_argument("--workspace-directory", default=os.environ.get("AGENT_WORKSPACE"))
+    parser.add_argument("--main-agents-file", default=os.environ.get("MAIN_AGENTS_FILE"), help="Path to main agent AGENTS.md")
     parser.add_argument("--summary", action="store_true", help="Quiet summary exit code only")
     args = parser.parse_args()
 
     skill_dir = args.skill_directory or str(get_openclaw_dir() / "workspace/skills/personal-archive")
     workspace_dir = args.workspace_directory or str(get_openclaw_dir() / "workspaces/archivist")
 
-    return check(args.archive_root, skill_dir, workspace_dir, summary_only=args.summary)
+    return check(args.archive_root, skill_dir, workspace_dir, main_agents_path=args.main_agents_file, summary_only=args.summary)
 
 
 if __name__ == "__main__":

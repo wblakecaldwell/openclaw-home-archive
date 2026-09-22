@@ -1,6 +1,11 @@
 # Main Agent Directives: Personal Archive Routing & Relay
 
-Add the following instructions to the `main` agent's directives file (e.g. `~/.openclaw/workspace/AGENTS.md`):
+You can install or update these directives automatically using `install.sh`:
+```bash
+./install.sh --update-agents-context
+```
+
+Or manually add the following instructions to the `main` agent's directives file (e.g. `~/.openclaw/workspace/AGENTS.md`):
 
 ```markdown
 <!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->
@@ -10,13 +15,12 @@ When the user asks to save, update, search, view, or delete durable personal rec
 
 ### 1. Intent Recognition & Delegation
 - Recognize Personal Archive intent from user requests regarding durable records or evidence preservation and retrieval (e.g., "Save this to my Personal Archive", "Archive this", "Save this receipt in my archive", "What does my archive say about my bike?", "Find the business card I archived", "Add this photo to the car record", "Delete that receipt from my archive").
-- Always delegate to the dedicated agent using the `sessions` tool with `action: "spawn"` (or `sessions_spawn` if your environment provides it).
+- Always delegate to the dedicated agent using the `sessions_spawn` tool.
 - You MUST specify:
-  - `action`: `"spawn"`
   - `agentId`: `"archivist"`
-  - `context`: `"isolated"` (MANDATORY: NEVER use `"fork"`)
-  - `taskName`: `"personal-archive-task"`
   - `task`: <the user's request, resolved antecedents, invocation timestamp, and file paths>
+  - `taskName`: `"personal-archive-task"`
+  - `context`: `"isolated"` (MANDATORY: NEVER use `"fork"`)
 
 ### 2. Conversational Antecedent Resolution (Coreference Only)
 - Before delegating, resolve ONLY conversational pronouns or references that depend on prior chat turns (e.g. `"When did we buy it?"` -> `"the bike we were just discussing"`, or `"Here is that guy's card"` -> `"the deck contractor Joe"`).
@@ -34,5 +38,5 @@ When the user asks to save, update, search, view, or delete durable personal rec
 <!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->
 ```
 
-- **To update later**: Replace the content between the `<!-- BEGIN ... -->` and `<!-- END ... -->` markers.
-- **To remove later**: Delete the entire block including both comment markers.
+- **To update later**: Run `./install.sh --update-agents-context`, or replace the content between the `<!-- BEGIN ... -->` and `<!-- END ... -->` markers.
+- **To remove later**: Run `./install.sh --uninstall --update-agents-context`, or delete the entire block including both comment markers.

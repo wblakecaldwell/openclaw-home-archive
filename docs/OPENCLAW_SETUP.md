@@ -3,7 +3,7 @@
 This guide is the authoritative manual for integrating OpenClaw Personal Archive into OpenClaw (version 2026.9.5+ on macOS).
 
 Personal Archive relies on an isolated **two-agent architecture**:
-1. **Main agent (`main`)**: Interacts with the user, resolves conversation-dependent coreferences (e.g. *"it"* $\to$ *"the bike we were just discussing"*), and delegates to the subagent using the `sessions` tool with `action: "spawn"` (`agentId="archivist"`, `context="isolated"`, ...).
+1. **Main agent (`main`)**: Interacts with the user, resolves conversation-dependent coreferences (e.g. *"it"* $\to$ *"the bike we were just discussing"*), and delegates to the subagent using the `sessions_spawn` tool (`agentId="archivist"`, `context="isolated"`, ...).
 2. **Dedicated agent (`archivist`)**: Operates in an isolated workspace with no chat history, leaf restrictions, and denied memory/session tools. It executes deterministic CLI commands against the on-disk archive and returns a structured response envelope with a user-ready `relay_message`.
 
 ---
@@ -183,7 +183,13 @@ openclaw config set agents.entries.main.skills '[]' --strict-json
 ```
 
 ### 3. Install Main Routing Directives in `~/.openclaw/workspace/AGENTS.md`
-Open your main agent's instructions file (`~/.openclaw/workspace/AGENTS.md`) and append the following marked block:
+
+You can install or update these routing directives automatically using `install.sh`:
+```bash
+./install.sh --update-agents-context
+```
+
+Or manually open your main agent's instructions file (`~/.openclaw/workspace/AGENTS.md`) and append or update the following marked block:
 
 ```markdown
 <!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->
@@ -193,13 +199,12 @@ When the user asks to save, update, search, view, or delete durable personal rec
 
 ### 1. Intent Recognition & Delegation
 - Recognize Personal Archive intent from user requests regarding durable records or evidence preservation and retrieval (e.g., "Save this to my Personal Archive", "Archive this", "Save this receipt in my archive", "What does my archive say about my bike?", "Find the business card I archived", "Add this photo to the car record", "Delete that receipt from my archive").
-- Always delegate to the dedicated agent using the `sessions` tool with `action: "spawn"` (or `sessions_spawn` if your environment provides it).
+- Always delegate to the dedicated agent using the `sessions_spawn` tool.
 - You MUST specify:
-  - `action`: `"spawn"`
   - `agentId`: `"archivist"`
-  - `context`: `"isolated"` (MANDATORY: NEVER use `"fork"`)
-  - `taskName`: `"personal-archive-task"`
   - `task`: <the user's request, resolved antecedents, invocation timestamp, and file paths>
+  - `taskName`: `"personal-archive-task"`
+  - `context`: `"isolated"` (MANDATORY: NEVER use `"fork"`)
 
 ### 2. Conversational Antecedent Resolution (Coreference Only)
 - Before delegating, resolve ONLY conversational pronouns or references that depend on prior chat turns (e.g. `"When did we buy it?"` -> `"the bike we were just discussing"`, or `"Here is that guy's card"` -> `"the deck contractor Joe"`).
@@ -217,8 +222,8 @@ When the user asks to save, update, search, view, or delete durable personal rec
 <!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->
 ```
 
-- **To update later**: Replace the content between the `<!-- BEGIN ... -->` and `<!-- END ... -->` markers.
-- **To remove later**: Delete the entire block including both comment markers.
+- **To update later**: Run `./install.sh --update-agents-context`, or replace the content between the `<!-- BEGIN ... -->` and `<!-- END ... -->` markers.
+- **To remove later**: Run `./install.sh --uninstall --update-agents-context`, or delete the entire block including both comment markers.
 
 ---
 
@@ -318,11 +323,11 @@ OpenClaw Personal Archive integration is complete and verified.
 
 To decommission Personal Archive:
 
-1. **Remove Software Artifacts**:
+1. **Remove Software Artifacts & Directives**:
    ```bash
-   ./install.sh --uninstall
+   ./install.sh --uninstall --update-agents-context
    ```
-   *Removes `~/.openclaw/workspace/skills/personal-archive` and `~/.openclaw/workspaces/archivist`. **Never** touches or deletes your archive records at `~/Documents/OpenClaw/PersonalArchive` or Apple Photos assets.*
+   *Removes `~/.openclaw/workspace/skills/personal-archive`, `~/.openclaw/workspaces/archivist`, and the managed routing block from `~/.openclaw/workspace/AGENTS.md`. **Never** touches or deletes your archive records at `~/Documents/OpenClaw/PersonalArchive` or Apple Photos assets.*
 
 2. **Remove Dedicated Agent & Skill Config**:
    ```bash
