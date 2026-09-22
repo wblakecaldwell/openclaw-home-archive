@@ -393,7 +393,7 @@ def query_vision_model(
     else:
         endpoint_url = raw_url
 
-    model_name = os.environ.get("LMSTUDIO_MODEL") or os.environ.get("LM_STUDIO_MODEL") or "google/gemma-4-e4b"
+    model_name = os.environ.get("PERSONAL_ARCHIVIST_MODEL") or os.environ.get("LMSTUDIO_MODEL") or os.environ.get("LM_STUDIO_MODEL") or "google/gemma-4-e4b"
 
     req_payload = {
         "model": model_name,
@@ -409,11 +409,21 @@ def query_vision_model(
         "temperature": 0.1,
     }
 
+    headers = {"Content-Type": "application/json"}
+    api_token = (
+        os.environ.get("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN")
+        or os.environ.get("LMSTUDIO_API_TOKEN")
+        or os.environ.get("LM_API_TOKEN")
+        or os.environ.get("LMSTUDIO_API_KEY")
+    )
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token.strip()}"
+
     req_data = json.dumps(req_payload).encode("utf-8")
     req = urllib.request.Request(
         endpoint_url,
         data=req_data,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
 
@@ -422,6 +432,19 @@ def query_vision_model(
             resp_body = resp.read().decode("utf-8")
             data = json.loads(resp_body)
             return data["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as exc:
+        err_msg = ""
+        try:
+            err_msg = exc.read().decode("utf-8")
+        except Exception:
+            pass
+        if exc.code == 401:
+            raise RuntimeError(
+                f"LM Studio authentication failed (HTTP 401): {err_msg or exc}. "
+                "Either disable 'Require Authentication' in LM Studio Developer tab -> Local Server, "
+                "or set the PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN or LMSTUDIO_API_TOKEN environment variable with a valid token."
+            ) from exc
+        raise RuntimeError(f"Vision model request failed (HTTP {exc.code}): {err_msg or exc}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(
             f"Failed to connect to local vision model server at {endpoint_url}: {exc}. "

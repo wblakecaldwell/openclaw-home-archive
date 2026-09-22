@@ -542,3 +542,84 @@ class MCPTests(ArchiveTestCase):
         self.assertTrue(add_content["ok"])
         self.assertEqual(len(add_content["attachments_added"]), 1)
 
+    def test_query_vision_model_auth_and_model_override(self):
+        received_requests = []
+
+        class MockAuthVisionServer(BaseHTTPRequestHandler):
+            def do_POST(self):
+                auth_header = self.headers.get("Authorization")
+                content_length = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(content_length).decode("utf-8")
+                req_json = json.loads(body)
+                received_requests.append({"auth": auth_header, "body": req_json})
+
+                if auth_header != "Bearer test-secret-token":
+                    self.send_response(401)
+                    self.send_header("Content-Type", "application/json")
+                    err_payload = json.dumps({"error": "unauthorized"}).encode("utf-8")
+                    self.send_header("Content-Length", str(len(err_payload)))
+                    self.end_headers()
+                    self.wfile.write(err_payload)
+                    return
+
+                resp = {
+                    "choices": [
+                        {"message": {"content": "{\"title\": \"Card\", \"facts\": [], \"keywords\": []}"}}
+                    ]
+                }
+                resp_bytes = json.dumps(resp).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(resp_bytes)))
+                self.end_headers()
+                self.wfile.write(resp_bytes)
+
+            def log_message(self, format, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), MockAuthVisionServer)
+        port = server.server_port
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        import os
+        old_url = os.environ.get("LMSTUDIO_URL")
+        old_token = os.environ.get("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN")
+        old_model = os.environ.get("PERSONAL_ARCHIVIST_MODEL")
+
+        os.environ["LMSTUDIO_URL"] = f"http://127.0.0.1:{port}/v1"
+        try:
+            # 1. Without token, should fail with HTTP 401
+            os.environ.pop("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN", None)
+            os.environ.pop("LMSTUDIO_API_TOKEN", None)
+            os.environ.pop("LM_API_TOKEN", None)
+            with self.assertRaises(RuntimeError) as ctx:
+                mcp_server.query_vision_model("data:image/jpeg;base64,AAAA", "test prompt")
+            self.assertIn("LM Studio authentication failed (HTTP 401)", str(ctx.exception))
+
+            # 2. With PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN and PERSONAL_ARCHIVIST_MODEL
+            os.environ["PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN"] = "test-secret-token"
+            os.environ["PERSONAL_ARCHIVIST_MODEL"] = "custom/my-vision-model"
+
+            result = mcp_server.query_vision_model("data:image/jpeg;base64,AAAA", "test prompt")
+            self.assertIn("title", result)
+
+            self.assertEqual(len(received_requests), 2)
+            self.assertEqual(received_requests[1]["auth"], "Bearer test-secret-token")
+            self.assertEqual(received_requests[1]["body"]["model"], "custom/my-vision-model")
+        finally:
+            if old_url is not None:
+                os.environ["LMSTUDIO_URL"] = old_url
+            else:
+                os.environ.pop("LMSTUDIO_URL", None)
+            if old_token is not None:
+                os.environ["PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN"] = old_token
+            else:
+                os.environ.pop("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN", None)
+            if old_model is not None:
+                os.environ["PERSONAL_ARCHIVIST_MODEL"] = old_model
+            else:
+                os.environ.pop("PERSONAL_ARCHIVIST_MODEL", None)
+
