@@ -123,6 +123,9 @@ The read-only health check will inspect the integration:
   [PASS] archivist agent has 'personal-archive' skill
   [PASS] archivist memory isolated (rememberAcrossConversations=false, group:memory denied)
   [PASS] archivist session tools denied (group:sessions)
+  [PASS] archivist shell execution denied (exec in tools.deny)
+  [PASS] archivist allows Personal Archive MCP tools (personal-archive/*)
+  [PASS] Personal Archive MCP server registered (mcp.servers.personal-archive)
   [PASS] archivist configured as leaf agent (allowAgents=[])
   [PASS] main agent does not directly execute 'personal-archive' skill
   [PASS] main agent subagents.allowAgents includes 'archivist'

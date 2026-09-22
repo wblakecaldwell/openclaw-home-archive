@@ -217,7 +217,8 @@ class InstallTests(unittest.TestCase):
                     "workspace": "~/.openclaw/workspaces/archivist",
                     "skills": ["personal-archive"],
                     "tools": {
-                        "deny": ["group:sessions", "group:memory"],
+                        "allow": ["read", "image", "personal-archive/*"],
+                        "deny": ["exec", "write", "group:sessions", "group:memory"],
                     },
                     "memory": {
                         "search": {
@@ -228,6 +229,14 @@ class InstallTests(unittest.TestCase):
                         "allowAgents": [],
                     },
                 },
+            }
+        }
+        data["mcp"] = {
+            "servers": {
+                "personal-archive": {
+                    "command": "python3",
+                    "args": ["scripts/mcp_server.py"],
+                }
             }
         }
         data["tools"] = {
@@ -274,7 +283,8 @@ class InstallTests(unittest.TestCase):
                     "workspace": "~/.openclaw/workspaces/archivist",
                     "skills": ["personal-archive"],
                     "tools": {
-                        "deny": ["group:sessions", "group:memory"],
+                        "allow": ["read", "image", "personal-archive/*"],
+                        "deny": ["exec", "write", "group:sessions", "group:memory"],
                     },
                     "memory": {
                         "search": {
@@ -287,6 +297,15 @@ class InstallTests(unittest.TestCase):
                 },
             }
         }
+        data["mcp"] = {
+            "servers": {
+                "personal-archive": {
+                    "command": "python3",
+                    "args": ["scripts/mcp_server.py"],
+                }
+            }
+        }
+        self.config.write_text(json.dumps(data))
         main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
         main_agents.parent.mkdir(parents=True, exist_ok=True)
         main_agents.write_text(

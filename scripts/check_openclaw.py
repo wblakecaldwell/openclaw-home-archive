@@ -151,11 +151,31 @@ def check(archive_root_arg, skill_dir, workspace_dir, summary_only=False):
         )
     )
 
-    # 10. Agent session tool restrictions
+    # 10. Agent session and exec tool restrictions
     tool_denies = agent.get("tools", {}).get("deny", []) if (isinstance(agent, dict) and isinstance(agent.get("tools"), dict)) else []
     session_tool_ok = "group:sessions" in tool_denies
     results.append(
         ("archivist session tools denied (group:sessions)", session_tool_ok, "critical")
+    )
+    exec_denied = "exec" in tool_denies
+    results.append(
+        ("archivist shell execution denied (exec in tools.deny)", exec_denied, "critical")
+    )
+
+    # 10b. Agent allows personal-archive MCP tools
+    tool_allows = agent.get("tools", {}).get("allow", []) if (isinstance(agent, dict) and isinstance(agent.get("tools"), dict)) else []
+    mcp_allowed = isinstance(tool_allows, list) and any(
+        x in tool_allows for x in ("personal-archive/*", "personal-archive", "personal_archive/*")
+    )
+    results.append(
+        ("archivist allows Personal Archive MCP tools (personal-archive/*)", mcp_allowed, "critical")
+    )
+
+    # 10c. Personal Archive MCP server registered
+    mcp_server = config_get("mcp.servers.personal-archive")
+    mcp_registered = isinstance(mcp_server, dict) and bool(mcp_server.get("command"))
+    results.append(
+        ("Personal Archive MCP server registered (mcp.servers.personal-archive)", mcp_registered, "critical")
     )
 
     # 11. Leaf worker configuration (cannot spawn subagents)
