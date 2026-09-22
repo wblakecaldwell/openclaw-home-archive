@@ -3,7 +3,7 @@
 This guide is the authoritative manual for integrating OpenClaw Personal Archive into OpenClaw (version 2026.9.5+ on macOS).
 
 Personal Archive relies on an isolated **two-agent architecture**:
-1. **Main agent (`main`)**: Interacts with the user, resolves conversation-dependent coreferences (e.g. *"it"* $\to$ *"the bike we were just discussing"*), and delegates to the subagent using `sessions_spawn(agentId="archivist", context="isolated", ...)`.
+1. **Main agent (`main`)**: Interacts with the user, resolves conversation-dependent coreferences (e.g. *"it"* $\to$ *"the bike we were just discussing"*), and delegates to the subagent using the `sessions` tool with `action: "spawn"` (`agentId="archivist"`, `context="isolated"`, ...).
 2. **Dedicated agent (`archivist`)**: Operates in an isolated workspace with no chat history, leaf restrictions, and denied memory/session tools. It executes deterministic CLI commands against the on-disk archive and returns a structured response envelope with a user-ready `relay_message`.
 
 ---
@@ -35,13 +35,13 @@ openclaw config set skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT "~
 ### 2. Register the Native MCP Server
 Register Personal Archive as a native Model Context Protocol (MCP) server over stdio:
 ```bash
-openclaw config set mcp.servers.personal-archive '{
-  "command": "python3",
-  "args": ["~/.openclaw/workspace/skills/personal-archive/scripts/mcp_server.py"],
-  "env": {
-    "PERSONAL_ARCHIVE_ROOT": "~/Documents/OpenClaw/PersonalArchive"
+openclaw config set mcp.servers.personal-archive "{
+  \"command\": \"python3\",
+  \"args\": [\"$HOME/.openclaw/workspace/skills/personal-archive/scripts/mcp_server.py\"],
+  \"env\": {
+    \"PERSONAL_ARCHIVE_ROOT\": \"$HOME/Documents/OpenClaw/PersonalArchive\"
   }
-}' --strict-json
+}" --strict-json
 ```
 
 ### 3. Register the Dedicated `archivist` Agent
@@ -193,11 +193,13 @@ When the user asks to save, update, search, view, or delete durable personal rec
 
 ### 1. Intent Recognition & Delegation
 - Recognize Personal Archive intent from user requests regarding durable records or evidence preservation and retrieval (e.g., "Save this to my Personal Archive", "Archive this", "Save this receipt in my archive", "What does my archive say about my bike?", "Find the business card I archived", "Add this photo to the car record", "Delete that receipt from my archive").
-- Always delegate to the dedicated agent via `sessions_spawn`.
+- Always delegate to the dedicated agent using the `sessions` tool with `action: "spawn"` (or `sessions_spawn` if your environment provides it).
 - You MUST specify:
+  - `action`: `"spawn"`
   - `agentId`: `"archivist"`
   - `context`: `"isolated"` (MANDATORY: NEVER use `"fork"`)
   - `taskName`: `"personal-archive-task"`
+  - `task`: <the user's request, resolved antecedents, invocation timestamp, and file paths>
 
 ### 2. Conversational Antecedent Resolution (Coreference Only)
 - Before delegating, resolve ONLY conversational pronouns or references that depend on prior chat turns (e.g. `"When did we buy it?"` -> `"the bike we were just discussing"`, or `"Here is that guy's card"` -> `"the deck contractor Joe"`).

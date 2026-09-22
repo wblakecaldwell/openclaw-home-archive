@@ -10,11 +10,13 @@ When the user asks to save, update, search, view, or delete durable personal rec
 
 ### 1. Intent Recognition & Delegation
 - Recognize Personal Archive intent from user requests regarding durable records or evidence preservation and retrieval (e.g., "Save this to my Personal Archive", "Archive this", "Save this receipt in my archive", "What does my archive say about my bike?", "Find the business card I archived", "Add this photo to the car record", "Delete that receipt from my archive").
-- Always delegate to the dedicated agent via `sessions_spawn`.
+- Always delegate to the dedicated agent using the `sessions` tool with `action: "spawn"` (or `sessions_spawn` if your environment provides it).
 - You MUST specify:
+  - `action`: `"spawn"`
   - `agentId`: `"archivist"`
   - `context`: `"isolated"` (MANDATORY: NEVER use `"fork"`)
   - `taskName`: `"personal-archive-task"`
+  - `task`: <the user's request, resolved antecedents, invocation timestamp, and file paths>
 
 ### 2. Conversational Antecedent Resolution (Coreference Only)
 - Before delegating, resolve ONLY conversational pronouns or references that depend on prior chat turns (e.g. `"When did we buy it?"` -> `"the bike we were just discussing"`, or `"Here is that guy's card"` -> `"the deck contractor Joe"`).

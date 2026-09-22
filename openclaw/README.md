@@ -15,21 +15,24 @@ User / iMessage
 main agent
   - Owns conversational interface and chat history
   - Resolves conversation-dependent references (e.g. "it" -> "the bike")
-  - Delegates via sessions_spawn(agentId="archivist", context="isolated", ...)
+  - Delegates via sessions(action="spawn", agentId="archivist", context="isolated", ...)
   - Relays verified results via relay_message; does not synthesize from memory
       │
-      │ sessions_spawn (agentId: "archivist", context: "isolated", mode: "run")
+      │ sessions(action: "spawn", agentId: "archivist", context: "isolated")
       ▼
 dedicated agent: "archivist" (Archivist)
   - Dedicated workspace (~/.openclaw/workspaces/archivist)
   - Separate session DB and state store
   - Leaf worker: subagents.allowAgents: [] (no subagent delegation permitted)
-  - Denied: group:sessions, group:memory, web_search, browser, edit, apply_patch
-  - Skills allowlist: ["personal-archive"]
+  - Denied: exec, write, group:sessions, group:memory, web_search, browser, edit, apply_patch
+  - Allowed tools: ["read", "image", "personal-archive/*"]
   - memory.search.rememberAcrossConversations: false
   - Returns structured envelope with pre-rendered relay_message
       │
-      │ python3 {baseDir}/scripts/personal_archive.py ...
+      │ native MCP stdio (archive_create, archive_search, ...)
+      ▼
+Personal Archive MCP Server (scripts/mcp_server.py)
+      │
       ▼
 Authoritative Filesystem Archive
   - ~/Documents/OpenClaw/PersonalArchive (or configured PERSONAL_ARCHIVE_ROOT)
