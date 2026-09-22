@@ -234,7 +234,7 @@ class InstallTests(unittest.TestCase):
                     "workspace": "~/.openclaw/workspaces/archivist",
                     "skills": ["personal-archive"],
                     "tools": {
-                        "allow": ["read", "image", "personal-archive/*"],
+                        "allow": ["read", "personal-archive/*"],
                         "deny": ["exec", "write", "group:sessions", "group:memory"],
                     },
                     "memory": {
@@ -300,7 +300,7 @@ class InstallTests(unittest.TestCase):
                     "workspace": "~/.openclaw/workspaces/archivist",
                     "skills": ["personal-archive"],
                     "tools": {
-                        "allow": ["read", "image", "personal-archive/*"],
+                        "allow": ["read", "personal-archive/*"],
                         "deny": ["exec", "write", "group:sessions", "group:memory"],
                     },
                     "memory": {

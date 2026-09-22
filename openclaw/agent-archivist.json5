@@ -21,7 +21,6 @@
         tools: {
           allow: [
             "read",
-            "image",
             "personal-archive/*"
           ],
           deny: [

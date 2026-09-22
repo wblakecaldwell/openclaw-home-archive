@@ -25,7 +25,7 @@ dedicated agent: "archivist" (Archivist)
   - Separate session DB and state store
   - Leaf worker: subagents.allowAgents: [] (no subagent delegation permitted)
   - Denied: exec, write, group:sessions, group:memory, web_search, browser, edit, apply_patch
-  - Allowed tools: ["read", "image", "personal-archive/*"]
+  - Allowed tools: ["read", "personal-archive/*"]
   - memory.search.rememberAcrossConversations: false
   - Returns structured envelope with pre-rendered relay_message
       │

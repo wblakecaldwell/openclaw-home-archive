@@ -53,7 +53,7 @@ openclaw config set agents.entries.archivist '{
   "model": "lmstudio/google/gemma-4-e4b",
   "workspace": "~/.openclaw/workspaces/archivist",
   "tools": {
-    "allow": ["read", "image", "personal-archive/*"],
+    "allow": ["read", "personal-archive/*"],
     "deny": [
       "exec",
       "write",
@@ -80,7 +80,7 @@ openclaw config set agents.entries.archivist '{
 **Why each setting matters:**
 - `workspace`: Points to `~/.openclaw/workspaces/archivist`, provisioned by `./install.sh`. It contains domain directives (`AGENTS.md`) and persona (`IDENTITY.md`), but strictly **no** conversational `MEMORY.md`.
 - `model`: Points to a lightweight, local image-aware model (such as `lmstudio/google/gemma-4-e4b`) to inspect evidence photos and extract structured facts without cloud API costs.
-- `tools.allow`: Grants access to `read` and `image` (for viewing input evidence) and `personal-archive/*` native MCP tools.
+- `tools.allow`: Grants access to `read` and `personal-archive/*` native MCP tools (including `archive_inspect_image`).
 - `tools.deny`:
   - `exec` and `write` prevent the agent from formulating arbitrary bash commands or mutating intermediate files.
   - `group:sessions` blocks `sessions_list` and session inspection tools, preventing the agent from seeing parent transcripts.
