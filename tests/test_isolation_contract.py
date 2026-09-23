@@ -195,6 +195,18 @@ class IsolationContractTests(unittest.TestCase):
         self.assertNotIn("maxSpawnDepth", agent_cfg)
         self.assertIn("rememberAcrossConversations", agent_cfg)
 
+        # Ensure generic filesystem read is denied and not in allow
+        import re
+        clean = re.sub(r"//.*", "", agent_cfg)
+        clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)
+        clean = re.sub(r",\s*([}\]])", r"\1", clean)
+        clean = re.sub(r"([{,]\s*)([a-zA-Z_][a-zA-Z0-9_-]*)\s*:", lambda m: m.group(1) + '"' + m.group(2) + '":', clean)
+        parsed_template = json.loads(clean)
+        archivist_tools = parsed_template["agents"]["entries"]["archivist"]["tools"]
+        self.assertNotIn("read", archivist_tools["allow"])
+        self.assertIn("read", archivist_tools["deny"])
+        self.assertIn("personal-archive/*", archivist_tools["allow"])
+
         main_patch = (PROJECT / "openclaw/agent-main-patch.json5").read_text()
         self.assertIn("requireAgentId", main_patch)
         self.assertIn("archivist", main_patch)

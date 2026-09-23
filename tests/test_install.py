@@ -298,8 +298,8 @@ class InstallTests(unittest.TestCase):
                     "workspace": "~/.openclaw/workspaces/archivist",
                     "skills": ["personal-archive"],
                     "tools": {
-                        "allow": ["read", "personal-archive/*"],
-                        "deny": ["exec", "write", "group:sessions", "group:memory"],
+                        "allow": ["personal-archive/*"],
+                        "deny": ["read", "exec", "write", "group:sessions", "group:memory"],
                     },
                     "memory": {
                         "search": {
@@ -369,8 +369,8 @@ class InstallTests(unittest.TestCase):
                     "workspace": "~/.openclaw/workspaces/archivist",
                     "skills": ["personal-archive"],
                     "tools": {
-                        "allow": ["read", "personal-archive/*"],
-                        "deny": ["exec", "write", "group:sessions", "group:memory"],
+                        "allow": ["personal-archive/*"],
+                        "deny": ["read", "exec", "write", "group:sessions", "group:memory"],
                     },
                     "memory": {
                         "search": {
@@ -652,8 +652,8 @@ class InstallTests(unittest.TestCase):
                     "workspace": "~/.openclaw/workspaces/archivist",
                     "skills": ["personal-archive"],
                     "tools": {
-                        "allow": ["read", "personal-archive/*"],
-                        "deny": ["exec", "write", "group:sessions", "group:memory"],
+                        "allow": ["personal-archive/*"],
+                        "deny": ["read", "exec", "write", "group:sessions", "group:memory"],
                     },
                     "memory": {
                         "search": {
@@ -721,8 +721,8 @@ class InstallTests(unittest.TestCase):
                     "workspace": "~/.openclaw/workspaces/archivist",
                     "skills": ["personal-archive"],
                     "tools": {
-                        "allow": ["read", "personal-archive/*"],
-                        "deny": ["exec", "write", "group:sessions", "group:memory"],
+                        "allow": ["personal-archive/*"],
+                        "deny": ["read", "exec", "write", "group:sessions", "group:memory"],
                     },
                     "memory": {
                         "search": {
@@ -766,8 +766,8 @@ class InstallTests(unittest.TestCase):
                     "workspace": "~/.openclaw/workspaces/archivist",
                     "skills": ["personal-archive"],
                     "tools": {
-                        "allow": ["read", "personal-archive/*"],
-                        "deny": ["exec", "write", "group:sessions", "group:memory"],
+                        "allow": ["personal-archive/*"],
+                        "deny": ["read", "exec", "write", "group:sessions", "group:memory"],
                     },
                     "memory": {
                         "search": {
@@ -794,6 +794,164 @@ class InstallTests(unittest.TestCase):
         self.assertIn("[PASS] LM Studio API responds", res.stdout)
         self.assertIn("[PASS] Vision model google/gemma-4-e4b is available", res.stdout)
         self.assertNotIn("__OPENCLAW_REDACTED__", res.stdout)
+
+    def test_installer_repairs_archivist_tool_policy(self):
+        """Verify installer removes 'read' from allow and adds 'read' to deny."""
+        # 1. Existing config allows 'read' and lacks 'read' in deny
+        cfg = json.loads(self.config.read_text())
+        cfg["agents"] = {
+            "entries": {
+                "archivist": {
+                    "name": "Archivist",
+                    "workspace": "~/.openclaw/workspaces/archivist",
+                    "skills": ["personal-archive"],
+                    "tools": {
+                        "allow": ["read", "personal-archive/*"],
+                        "deny": ["exec", "write", "group:sessions", "group:memory"],
+                    },
+                }
+            }
+        }
+        self.config.write_text(json.dumps(cfg))
+
+        # 2. Run installer
+        self.install(success=True)
+
+        # 3. Verify repaired configuration
+        updated_cfg = json.loads(self.config.read_text())
+        tools = updated_cfg["agents"]["entries"]["archivist"]["tools"]
+        self.assertNotIn("read", tools["allow"])
+        self.assertIn("personal-archive/*", tools["allow"])
+        self.assertIn("read", tools["deny"])
+
+    def test_checker_passes_when_archivist_filesystem_read_denied(self):
+        """Verify check passes when personal-archive/* is allowed and read is denied."""
+        self.install(success=True)
+        data = json.loads(self.config.read_text())
+        data["agents"] = {
+            "entries": {
+                "main": {
+                    "subagents": {
+                        "requireAgentId": True,
+                        "allowAgents": ["archivist"],
+                    },
+                    "skills": [],
+                },
+                "archivist": {
+                    "name": "Archivist",
+                    "workspace": "~/.openclaw/workspaces/archivist",
+                    "skills": ["personal-archive"],
+                    "tools": {
+                        "allow": ["personal-archive/*"],
+                        "deny": ["read", "exec", "write", "group:sessions", "group:memory"],
+                    },
+                    "memory": {
+                        "search": {
+                            "rememberAcrossConversations": False,
+                        }
+                    },
+                    "subagents": {
+                        "allowAgents": [],
+                    },
+                },
+            }
+        }
+        self.config.write_text(json.dumps(data))
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text(
+            "# Main Directives\n<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+            "archivist delegation directives\n<!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+        )
+
+        res = self.install(args=("--check",), success=True)
+        self.assertIn("[PASS] archivist generic filesystem read denied", res.stdout)
+
+    def test_checker_fails_critically_when_read_is_allowed(self):
+        """Verify check fails critically when 'read' is present in tools.allow."""
+        self.install(success=True)
+        data = json.loads(self.config.read_text())
+        data["agents"] = {
+            "entries": {
+                "main": {
+                    "subagents": {
+                        "requireAgentId": True,
+                        "allowAgents": ["archivist"],
+                    },
+                    "skills": [],
+                },
+                "archivist": {
+                    "name": "Archivist",
+                    "workspace": "~/.openclaw/workspaces/archivist",
+                    "skills": ["personal-archive"],
+                    "tools": {
+                        "allow": ["read", "personal-archive/*"],
+                        "deny": ["read", "exec", "write", "group:sessions", "group:memory"],
+                    },
+                    "memory": {
+                        "search": {
+                            "rememberAcrossConversations": False,
+                        }
+                    },
+                    "subagents": {
+                        "allowAgents": [],
+                    },
+                },
+            }
+        }
+        self.config.write_text(json.dumps(data))
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text(
+            "# Main Directives\n<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+            "archivist delegation directives\n<!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+        )
+
+        res = self.install(args=("--check",), success=False)
+        self.assertIn("[FAIL] archivist generic filesystem read denied", res.stdout + res.stderr)
+
+    def test_checker_fails_critically_when_read_is_not_denied(self):
+        """Verify check fails critically when 'read' is absent from tools.deny."""
+        self.install(success=True)
+        data = json.loads(self.config.read_text())
+        data["agents"] = {
+            "entries": {
+                "main": {
+                    "subagents": {
+                        "requireAgentId": True,
+                        "allowAgents": ["archivist"],
+                    },
+                    "skills": [],
+                },
+                "archivist": {
+                    "name": "Archivist",
+                    "workspace": "~/.openclaw/workspaces/archivist",
+                    "skills": ["personal-archive"],
+                    "tools": {
+                        "allow": ["personal-archive/*"],
+                        "deny": ["exec", "write", "group:sessions", "group:memory"],
+                    },
+                    "memory": {
+                        "search": {
+                            "rememberAcrossConversations": False,
+                        }
+                    },
+                    "subagents": {
+                        "allowAgents": [],
+                    },
+                },
+            }
+        }
+        self.config.write_text(json.dumps(data))
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text(
+            "# Main Directives\n<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+            "archivist delegation directives\n<!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+        )
+
+        res = self.install(args=("--check",), success=False)
+        self.assertIn("[FAIL] archivist generic filesystem read denied", res.stdout + res.stderr)
 
 
 if __name__ == "__main__":

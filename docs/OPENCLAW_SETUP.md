@@ -76,8 +76,9 @@ openclaw config set agents.entries.archivist '{
   "model": "lmstudio/google/gemma-4-e4b",
   "workspace": "~/.openclaw/workspaces/archivist",
   "tools": {
-    "allow": ["read", "personal-archive/*"],
+    "allow": ["personal-archive/*"],
     "deny": [
+      "read",
       "exec",
       "write",
       "group:sessions",
@@ -103,8 +104,9 @@ openclaw config set agents.entries.archivist '{
 **Why each setting matters:**
 - `workspace`: Points to `~/.openclaw/workspaces/archivist`, provisioned by `./install.sh`. It contains domain directives (`AGENTS.md`) and persona (`IDENTITY.md`), but strictly **no** conversational `MEMORY.md`.
 - `model`: Points to a lightweight, local image-aware model (such as `lmstudio/google/gemma-4-e4b`) to inspect evidence photos and extract structured facts without cloud API costs.
-- `tools.allow`: Grants access to `read` and `personal-archive/*` native MCP tools (including `archive_inspect_image`).
+- `tools.allow`: Grants access exclusively to `personal-archive/*` native MCP tools.
 - `tools.deny`:
+  - `read`: The archivist must not use OpenClaw's generic filesystem read tool to inspect attachment images. Attachment paths are passed directly to Personal Archive MCP tools. The MCP server owns local file access and vision-model transport. This avoids loops where a local model repeatedly attempts to read a binary image through the generic read tool.
   - `exec` and `write` prevent the agent from formulating arbitrary bash commands or mutating intermediate files.
   - `group:sessions` blocks `sessions_list` and session inspection tools, preventing the agent from seeing parent transcripts.
   - `group:memory` blocks access to memory embeddings and chat history summaries.
@@ -325,6 +327,7 @@ Expected output:
   [PASS] archivist memory isolated (rememberAcrossConversations=false, group:memory denied)
   [PASS] archivist session tools denied (group:sessions)
   [PASS] archivist shell execution denied (exec in tools.deny)
+  [PASS] archivist generic filesystem read denied
   [PASS] archivist allows Personal Archive MCP tools (personal-archive/*)
   [PASS] Personal Archive MCP server registered
   [PASS] MCP PERSONAL_ARCHIVE_ROOT configured

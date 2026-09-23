@@ -6,7 +6,7 @@
 // dreaming summaries, or main agent memory files.
 //
 // Security & Hardening:
-// Shell execution (exec) and write are denied. The agent interacts with the archive
+// Shell execution (exec), write, and generic filesystem read are denied. The agent interacts with the archive
 // solely via native Model Context Protocol (MCP) tools provided by the personal-archive server.
 
 {
@@ -20,10 +20,10 @@
         workspace: "~/.openclaw/workspaces/archivist",
         tools: {
           allow: [
-            "read",
             "personal-archive/*"
           ],
           deny: [
+            "read",
             "exec",
             "write",
             "group:sessions",

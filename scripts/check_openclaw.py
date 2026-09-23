@@ -463,8 +463,73 @@ def configure_mcp_server(archive_root, skill_dir, env=None):
     # Also keep skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT aligned
     config_set(CONFIG_ROOT_KEY, candidate_root)
 
+    # 7. Enforce archivist tool policy (MCP-only, generic read denied)
+    enforce_archivist_tools(candidate_model=candidate_model)
+
     print(f"[PASS] Personal Archive MCP server configured (URL: {candidate_url}, Model: {candidate_model})")
     return 0
+
+
+def enforce_archivist_tools(candidate_model=None):
+    """Enforce the archivist agent's tool policy in OpenClaw config.
+
+    Ensures:
+    - 'read' is removed from allow
+    - 'personal-archive/*' is in allow
+    - 'read' is explicitly in deny
+    - 'exec', 'write', 'group:sessions', 'group:memory', etc. are in deny
+    """
+    archivist = config_get("agents.entries.archivist")
+    default_deny = [
+        "read",
+        "exec",
+        "write",
+        "group:sessions",
+        "group:memory",
+        "web_search",
+        "browser",
+        "edit",
+        "apply_patch",
+    ]
+    if isinstance(archivist, dict):
+        tools = dict(archivist.get("tools") or {})
+        allow = [t for t in (tools.get("allow") or []) if t != "read"]
+        if "personal-archive/*" not in allow:
+            allow.append("personal-archive/*")
+
+        deny = list(tools.get("deny") or [])
+        if "read" not in deny:
+            deny.insert(0, "read")
+        for d in default_deny:
+            if d not in deny:
+                deny.append(d)
+
+        if tools.get("allow") != allow or tools.get("deny") != deny:
+            tools["allow"] = allow
+            tools["deny"] = deny
+            config_set("agents.entries.archivist.tools", tools)
+    else:
+        model_name = candidate_model or "lmstudio/google/gemma-4-e4b"
+        new_archivist = {
+            "name": "Archivist",
+            "description": "Isolated factual agent responsible for durable personal records and evidence.",
+            "model": model_name,
+            "workspace": "~/.openclaw/workspaces/archivist",
+            "tools": {
+                "allow": ["personal-archive/*"],
+                "deny": default_deny,
+            },
+            "skills": ["personal-archive"],
+            "memory": {
+                "search": {
+                    "rememberAcrossConversations": False,
+                },
+            },
+            "subagents": {
+                "allowAgents": [],
+            },
+        }
+        config_set("agents.entries.archivist", new_archivist)
 
 
 def check(archive_root_arg, skill_dir, workspace_dir, main_agents_path=None, summary_only=False):
@@ -585,8 +650,14 @@ def check(archive_root_arg, skill_dir, workspace_dir, main_agents_path=None, sum
         ("archivist shell execution denied (exec in tools.deny)", exec_denied, "critical")
     )
 
-    # 10b. Agent allows personal-archive MCP tools
+    # 10a. Agent generic filesystem read denied
     tool_allows = agent.get("tools", {}).get("allow", []) if (isinstance(agent, dict) and isinstance(agent.get("tools"), dict)) else []
+    read_denied = ("read" not in tool_allows) and ("read" in tool_denies)
+    results.append(
+        ("archivist generic filesystem read denied", read_denied, "critical")
+    )
+
+    # 10b. Agent allows personal-archive MCP tools
     mcp_allowed = isinstance(tool_allows, list) and any(
         x in tool_allows for x in ("personal-archive/*", "personal-archive", "personal_archive/*")
     )
