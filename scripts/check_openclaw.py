@@ -94,13 +94,29 @@ class LMStudioValidationResult:
         self.hostname = hostname
 
 
-def validate_lmstudio(url, model=None, timeout=5.0):
+def get_lmstudio_token(proc_env=None, cfg_env=None):
+    """Resolve LM Studio API token from environment or config."""
+    pe = os.environ if proc_env is None else proc_env
+    ce = cfg_env or {}
+    return (
+        pe.get("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN")
+        or pe.get("LMSTUDIO_API_TOKEN")
+        or pe.get("LM_API_TOKEN")
+        or pe.get("LMSTUDIO_API_KEY")
+        or ce.get("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN")
+        or ce.get("LMSTUDIO_API_TOKEN")
+        or ce.get("LM_API_TOKEN")
+        or ce.get("LMSTUDIO_API_KEY")
+    )
+
+
+def validate_lmstudio(url, model=None, token=None, timeout=5.0):
     """Validate LM Studio URL and model availability via /models.
 
     Checks:
     - URL scheme (http/https) and hostname presence
     - Hostname DNS resolution
-    - HTTP GET <url>/models connectivity and 200 response
+    - HTTP GET <url>/models connectivity and 200 response (with Authorization bearer token if configured)
     - Valid OpenAI-compatible JSON with top-level 'data' array
     - If model is provided, presence of model id in returned models
     """
@@ -141,13 +157,33 @@ def validate_lmstudio(url, model=None, timeout=5.0):
             error_message=f"[FAIL] LM Studio hostname could not be resolved: {hostname}",
         )
 
+    resolved_token = token if token is not None else get_lmstudio_token()
+
     endpoint = clean_url.rstrip("/") + "/models"
-    req = urllib.request.Request(endpoint, headers={"User-Agent": "OpenClaw-PersonalArchive"})
+    headers = {"User-Agent": "OpenClaw-PersonalArchive"}
+    if resolved_token and str(resolved_token).strip():
+        headers["Authorization"] = f"Bearer {str(resolved_token).strip()}"
+
+    req = urllib.request.Request(endpoint, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             status_code = resp.status
             raw_body = resp.read()
     except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return LMStudioValidationResult(
+                ok=False,
+                valid_url=True,
+                host_resolves=True,
+                api_responds=False,
+                hostname=hostname,
+                endpoint=endpoint,
+                error_message=(
+                    f"[FAIL] LM Studio authentication failed (HTTP 401) at:\n       {endpoint}\n"
+                    f"       Set the PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN environment variable with a valid token, "
+                    f"or disable authentication in LM Studio."
+                ),
+            )
         return LMStudioValidationResult(
             ok=False,
             valid_url=True,
@@ -282,18 +318,27 @@ def configure_mcp_server(archive_root, skill_dir, env=None):
         else:
             candidate_root = str(Path.home() / "Documents/OpenClaw/PersonalArchive")
 
-    # 4. Validate candidate values before modifying any config
-    val = validate_lmstudio(candidate_url, model=candidate_model, timeout=5.0)
+    # 4. Resolve Token
+    candidate_token = get_lmstudio_token(proc_env=proc_env, cfg_env=existing_env)
+    if candidate_token and str(candidate_token).strip():
+        candidate_token = str(candidate_token).strip()
+    else:
+        candidate_token = None
+
+    # 5. Validate candidate values before modifying any config
+    val = validate_lmstudio(candidate_url, model=candidate_model, token=candidate_token, timeout=5.0)
     if not val.ok:
         if val.error_message:
             print(val.error_message, file=sys.stderr)
         return 1
 
-    # 5. Build updated MCP server entry preserving existing extra env vars
+    # 6. Build updated MCP server entry preserving existing extra env vars
     updated_env = dict(existing_env)
     updated_env["PERSONAL_ARCHIVE_ROOT"] = candidate_root
     updated_env["PERSONAL_ARCHIVIST_LMSTUDIO_URL"] = candidate_url
     updated_env["PERSONAL_ARCHIVIST_MODEL"] = candidate_model
+    if candidate_token:
+        updated_env["PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN"] = candidate_token
 
     script_path = str(Path(os.path.expanduser(skill_dir)) / "scripts/mcp_server.py")
     mcp_entry = {
@@ -466,7 +511,8 @@ def check(archive_root_arg, skill_dir, workspace_dir, main_agents_path=None, sum
 
     # 10e. LM Studio connectivity and model verification
     if mcp_url_ok:
-        val_res = validate_lmstudio(mcp_url, model=mcp_model if mcp_model_ok else None, timeout=5.0)
+        mcp_token = get_lmstudio_token(cfg_env=mcp_env)
+        val_res = validate_lmstudio(mcp_url, model=mcp_model if mcp_model_ok else None, token=mcp_token, timeout=5.0)
         host_ok = val_res.host_resolves
         api_ok = val_res.api_responds
         model_ok = val_res.model_available if mcp_model_ok else False

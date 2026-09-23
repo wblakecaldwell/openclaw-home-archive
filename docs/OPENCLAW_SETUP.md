@@ -23,6 +23,8 @@ cd openclaw-personal-archive
 # Export LM Studio settings for initial setup (or when overriding endpoints)
 export PERSONAL_ARCHIVIST_LMSTUDIO_URL="http://Johnny-5.local:1234/v1"
 export PERSONAL_ARCHIVIST_MODEL="google/gemma-4-e4b"
+# Optional: if LM Studio authentication is enabled:
+# export PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN="your-token"
 
 ./install.sh --archive-root ~/Documents/OpenClaw/PersonalArchive
 ```
@@ -31,8 +33,9 @@ export PERSONAL_ARCHIVIST_MODEL="google/gemma-4-e4b"
 - `PERSONAL_ARCHIVIST_LMSTUDIO_URL` is read from the current environment when initially configured or when intentionally overridden.
 - Once persisted in OpenClaw MCP config (`mcp.servers.personal-archive.env`), it is preserved across subsequent `install.sh` runs and does NOT need to remain exported in `.zprofile` or shell startup files.
 - `PERSONAL_ARCHIVIST_MODEL` follows the same persistence behavior.
-- `install.sh` validates `/v1/models` and confirms that the configured model is advertised before persisting any endpoint change. If validation fails (e.g. host unresolvable, server unreachable, model missing), the existing configuration is left untouched.
-- `./install.sh --check` verifies the configured endpoint and model availability in read-only mode without modifying configuration.
+- `PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN` (optional) is also read from the environment and persisted in MCP config if provided. It is sent as an `Authorization: Bearer <token>` header during health checks, install validation, and MCP vision calls when LM Studio requires authentication.
+- `install.sh` validates `/v1/models` and confirms that the configured model is advertised before persisting any endpoint change. If validation fails (e.g. host unresolvable, server unreachable, authentication failed, model missing), the existing configuration is left untouched.
+- `./install.sh --check` verifies the configured endpoint and model availability in read-only mode without modifying configuration, using the configured token if present.
 
 You can run `./install.sh --check` at any time to inspect what is currently configured and what remains.
 

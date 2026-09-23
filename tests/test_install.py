@@ -16,11 +16,23 @@ class MockLMStudioHandler(BaseHTTPRequestHandler):
     models = [{"id": "google/gemma-4-e4b", "object": "model"}]
     status_code = 200
     response_body = None
+    required_token = None
+    received_auth = None
 
     def log_message(self, format, *args):
         pass
 
     def do_GET(self):
+        MockLMStudioHandler.received_auth = self.headers.get("Authorization")
+        if MockLMStudioHandler.required_token:
+            expected = f"Bearer {MockLMStudioHandler.required_token}"
+            if MockLMStudioHandler.received_auth != expected:
+                self.send_response(401)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"error": "Authentication required"}')
+                return
+
         if self.path == "/v1/models":
             self.send_response(MockLMStudioHandler.status_code)
             self.send_header("Content-Type", "application/json")
@@ -40,6 +52,8 @@ class InstallTests(unittest.TestCase):
         MockLMStudioHandler.models = [{"id": "google/gemma-4-e4b", "object": "model"}]
         MockLMStudioHandler.status_code = 200
         MockLMStudioHandler.response_body = None
+        MockLMStudioHandler.required_token = None
+        MockLMStudioHandler.received_auth = None
 
         self.mock_server = HTTPServer(("127.0.0.1", 0), MockLMStudioHandler)
         self.mock_port = self.mock_server.server_port
@@ -671,6 +685,67 @@ class InstallTests(unittest.TestCase):
         self.install(args=("--check",), success=False)
 
         self.assertEqual(self.config.read_bytes(), config_before)
+
+    def test_lmstudio_token_authentication_flow(self):
+        """Verify token is used during validation, persisted in MCP config, and used in --check."""
+        MockLMStudioHandler.required_token = "secret-token-123"
+
+        # 1. Without token, install fails with HTTP 401
+        res_fail = self.install(success=False)
+        self.assertIn("LM Studio authentication failed (HTTP 401)", res_fail.stderr + res_fail.stdout)
+        self.assertIn("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN", res_fail.stderr + res_fail.stdout)
+
+        # 2. With token in env, install succeeds and persists token
+        self.env["PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN"] = "secret-token-123"
+        self.install(success=True)
+        self.assertEqual(MockLMStudioHandler.received_auth, "Bearer secret-token-123")
+
+        updated_cfg = json.loads(self.config.read_text())
+        mcp_env = updated_cfg["mcp"]["servers"]["personal-archive"]["env"]
+        self.assertEqual(mcp_env.get("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN"), "secret-token-123")
+
+        # 3. Running --check without env token uses the persisted token from MCP config
+        self.env.pop("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN", None)
+        data = updated_cfg
+        data["agents"] = {
+            "entries": {
+                "main": {
+                    "subagents": {
+                        "requireAgentId": True,
+                        "allowAgents": ["archivist"],
+                    },
+                    "skills": [],
+                },
+                "archivist": {
+                    "name": "Archivist",
+                    "workspace": "~/.openclaw/workspaces/archivist",
+                    "skills": ["personal-archive"],
+                    "tools": {
+                        "allow": ["read", "personal-archive/*"],
+                        "deny": ["exec", "write", "group:sessions", "group:memory"],
+                    },
+                    "memory": {
+                        "search": {
+                            "rememberAcrossConversations": False,
+                        }
+                    },
+                    "subagents": {
+                        "allowAgents": [],
+                    },
+                },
+            }
+        }
+        self.config.write_text(json.dumps(data))
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text(
+            "# Main Directives\n<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+            "archivist delegation directives\n<!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+        )
+
+        res_chk = self.install(args=("--check",), success=True)
+        self.assertIn("[PASS] LM Studio API responds", res_chk.stdout)
+        self.assertEqual(MockLMStudioHandler.received_auth, "Bearer secret-token-123")
 
 
 if __name__ == "__main__":
