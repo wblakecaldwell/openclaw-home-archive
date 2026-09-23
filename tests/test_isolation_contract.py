@@ -239,12 +239,38 @@ class IsolationContractTests(unittest.TestCase):
                 )
             )
 
+            from http.server import HTTPServer, BaseHTTPRequestHandler
+            import threading
+
+            class MockLMHandler(BaseHTTPRequestHandler):
+                def log_message(self, format, *args):
+                    pass
+
+                def do_GET(self):
+                    if self.path == "/v1/models":
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"object": "list", "data": [{"id": "google/gemma-4-e4b"}]}).encode("utf-8"))
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+
+            mock_server = HTTPServer(("127.0.0.1", 0), MockLMHandler)
+            mock_port = mock_server.server_port
+            server_thread = threading.Thread(target=mock_server.serve_forever, daemon=True)
+            server_thread.start()
+            self.addCleanup(mock_server.server_close)
+            self.addCleanup(mock_server.shutdown)
+
             env = dict(
                 os.environ,
                 HOME=str(fake_home),
                 PATH=str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
                 TEST_OPENCLAW_CONFIG=str(config),
                 PERSONAL_ARCHIVE_ROOT=str(tmppath / "archive"),
+                PERSONAL_ARCHIVIST_LMSTUDIO_URL=f"http://127.0.0.1:{mock_port}/v1",
+                PERSONAL_ARCHIVIST_MODEL="google/gemma-4-e4b",
                 PYTHONDONTWRITEBYTECODE="1",
             )
 

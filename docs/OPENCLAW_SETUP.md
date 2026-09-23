@@ -10,13 +10,29 @@ Personal Archive relies on an isolated **two-agent architecture**:
 
 ## Prerequisites
 
-Before configuring OpenClaw, install Personal Archive software artifacts and provision the dedicated workspace:
+Before configuring OpenClaw, install Personal Archive software artifacts, configure its MCP server, and provision the dedicated workspace.
+
+The installer (`install.sh`) manages software artifacts and automatically creates and configures the native Model Context Protocol (MCP) server entry under `mcp.servers.personal-archive`.
+
+When initially installing or intentionally overriding your LM Studio connection, export the connection settings in your shell:
 
 ```bash
 git clone https://github.com/wblakecaldwell/openclaw-personal-archive.git
 cd openclaw-personal-archive
+
+# Export LM Studio settings for initial setup (or when overriding endpoints)
+export PERSONAL_ARCHIVIST_LMSTUDIO_URL="http://Johnny-5.local:1234/v1"
+export PERSONAL_ARCHIVIST_MODEL="google/gemma-4-e4b"
+
 ./install.sh --archive-root ~/Documents/OpenClaw/PersonalArchive
 ```
+
+**How LM Studio configuration persistence works:**
+- `PERSONAL_ARCHIVIST_LMSTUDIO_URL` is read from the current environment when initially configured or when intentionally overridden.
+- Once persisted in OpenClaw MCP config (`mcp.servers.personal-archive.env`), it is preserved across subsequent `install.sh` runs and does NOT need to remain exported in `.zprofile` or shell startup files.
+- `PERSONAL_ARCHIVIST_MODEL` follows the same persistence behavior.
+- `install.sh` validates `/v1/models` and confirms that the configured model is advertised before persisting any endpoint change. If validation fails (e.g. host unresolvable, server unreachable, model missing), the existing configuration is left untouched.
+- `./install.sh --check` verifies the configured endpoint and model availability in read-only mode without modifying configuration.
 
 You can run `./install.sh --check` at any time to inspect what is currently configured and what remains.
 
@@ -26,25 +42,29 @@ You can run `./install.sh --check` at any time to inspect what is currently conf
 
 These configuration entries belong strictly to Personal Archive and do not alter main agent behavior or global OpenClaw policies.
 
-#### 1. Set Archive Location for the Skill
-Set the path to the durable personal archive outside this repository:
-```bash
-openclaw config set skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT "~/Documents/OpenClaw/PersonalArchive"
-```
+### 1. Personal Archive MCP Server (Managed by `install.sh`)
 
-### 2. Register the Native MCP Server
-Register Personal Archive as a native Model Context Protocol (MCP) server over stdio:
-```bash
-openclaw config set mcp.servers.personal-archive "{
-  \"command\": \"python3\",
-  \"args\": [\"$HOME/.openclaw/workspace/skills/personal-archive/scripts/mcp_server.py\"],
-  \"env\": {
-    \"PERSONAL_ARCHIVE_ROOT\": \"$HOME/Documents/OpenClaw/PersonalArchive\"
+`install.sh` automatically creates and maintains the native Model Context Protocol (MCP) server entry in OpenClaw configuration:
+
+```json
+{
+  "command": "python3",
+  "args": ["$HOME/.openclaw/workspace/skills/personal-archive/scripts/mcp_server.py"],
+  "env": {
+    "PERSONAL_ARCHIVE_ROOT": "$HOME/Documents/OpenClaw/PersonalArchive",
+    "PERSONAL_ARCHIVIST_LMSTUDIO_URL": "http://Johnny-5.local:1234/v1",
+    "PERSONAL_ARCHIVIST_MODEL": "google/gemma-4-e4b"
   }
-}" --strict-json
+}
 ```
 
-### 3. Register the Dedicated `archivist` Agent
+You do **not** need to manually run `openclaw config set mcp.servers.personal-archive`. The installer owns this entry. To change your LM Studio URL or vision model in the future, simply re-run `./install.sh` with the new environment variable exported:
+```bash
+PERSONAL_ARCHIVIST_LMSTUDIO_URL="http://new-host.local:1234/v1" ./install.sh
+```
+The installer validates the endpoint against `/v1/models` first before overwriting the existing config.
+
+### 2. Register the Dedicated `archivist` Agent
 Register the isolated agent definition. Notice that raw shell execution (`exec`) and filesystem write (`write`) are denied. The agent interacts with the archive exclusively via native MCP tools (`personal-archive/*`) and inspects visual evidence using the `image` tool:
 ```bash
 openclaw config set agents.entries.archivist '{
@@ -301,6 +321,15 @@ Expected output:
   [PASS] archivist agent has 'personal-archive' skill
   [PASS] archivist memory isolated (rememberAcrossConversations=false, group:memory denied)
   [PASS] archivist session tools denied (group:sessions)
+  [PASS] archivist shell execution denied (exec in tools.deny)
+  [PASS] archivist allows Personal Archive MCP tools (personal-archive/*)
+  [PASS] Personal Archive MCP server registered
+  [PASS] MCP PERSONAL_ARCHIVE_ROOT configured
+  [PASS] MCP PERSONAL_ARCHIVIST_LMSTUDIO_URL configured
+  [PASS] MCP PERSONAL_ARCHIVIST_MODEL configured
+  [PASS] LM Studio hostname resolves
+  [PASS] LM Studio API responds
+  [PASS] Vision model google/gemma-4-e4b is available
   [PASS] archivist configured as leaf agent (allowAgents=[])
   [PASS] main agent does not directly execute 'personal-archive' skill
   [PASS] main agent subagents.allowAgents includes 'archivist'
@@ -329,10 +358,11 @@ To decommission Personal Archive:
    ```
    *Removes `~/.openclaw/workspace/skills/personal-archive`, `~/.openclaw/workspaces/archivist`, and the managed routing block from `~/.openclaw/workspace/AGENTS.md`. **Never** touches or deletes your archive records at `~/Documents/OpenClaw/PersonalArchive` or Apple Photos assets.*
 
-2. **Remove Dedicated Agent & Skill Config**:
+2. **Remove Dedicated Agent & MCP Config**:
    ```bash
    openclaw config unset agents.entries.archivist
    openclaw config unset skills.entries.personal-archive
+   openclaw config unset mcp.servers.personal-archive
    ```
 
 3. **Remove from Main Agent Delegation**:

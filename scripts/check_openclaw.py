@@ -6,8 +6,12 @@ import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 
 CONFIG_ROOT_KEY = "skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT"
 ROUTING_MARKER = "PERSONAL ARCHIVE"
@@ -47,6 +51,268 @@ def config_get(key):
         return stdout
 
 
+def config_set(key, value):
+    """Write a configuration value to OpenClaw."""
+    val_str = json.dumps(value)
+    res = subprocess.run(
+        ["openclaw", "config", "set", key, val_str, "--strict-json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if res.returncode != 0:
+        res = subprocess.run(
+            ["openclaw", "config", "set", key, val_str],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    return res.returncode == 0
+
+
+class LMStudioValidationResult:
+    def __init__(
+        self,
+        ok=False,
+        valid_url=False,
+        host_resolves=False,
+        api_responds=False,
+        model_available=False,
+        error_message=None,
+        models=None,
+        endpoint=None,
+        hostname=None,
+    ):
+        self.ok = ok
+        self.valid_url = valid_url
+        self.host_resolves = host_resolves
+        self.api_responds = api_responds
+        self.model_available = model_available
+        self.error_message = error_message
+        self.models = models or []
+        self.endpoint = endpoint
+        self.hostname = hostname
+
+
+def validate_lmstudio(url, model=None, timeout=5.0):
+    """Validate LM Studio URL and model availability via /models.
+
+    Checks:
+    - URL scheme (http/https) and hostname presence
+    - Hostname DNS resolution
+    - HTTP GET <url>/models connectivity and 200 response
+    - Valid OpenAI-compatible JSON with top-level 'data' array
+    - If model is provided, presence of model id in returned models
+    """
+    if not url or not isinstance(url, str) or not url.strip():
+        return LMStudioValidationResult(
+            ok=False,
+            error_message="[FAIL] PERSONAL_ARCHIVIST_LMSTUDIO_URL is not configured.",
+        )
+
+    clean_url = url.strip()
+    try:
+        parsed = urllib.parse.urlparse(clean_url)
+    except Exception:
+        return LMStudioValidationResult(
+            ok=False,
+            error_message=f"[FAIL] Malformed LM Studio URL: '{clean_url}'.",
+        )
+
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return LMStudioValidationResult(
+            ok=False,
+            valid_url=False,
+            error_message=f"[FAIL] Malformed LM Studio URL: '{clean_url}'. Must include http:// or https:// and a valid hostname.",
+        )
+
+    hostname = parsed.hostname
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    try:
+        socket.getaddrinfo(hostname, port)
+        host_resolves = True
+    except (socket.gaierror, socket.herror, OSError):
+        return LMStudioValidationResult(
+            ok=False,
+            valid_url=True,
+            host_resolves=False,
+            hostname=hostname,
+            error_message=f"[FAIL] LM Studio hostname could not be resolved: {hostname}",
+        )
+
+    endpoint = clean_url.rstrip("/") + "/models"
+    req = urllib.request.Request(endpoint, headers={"User-Agent": "OpenClaw-PersonalArchive"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status_code = resp.status
+            raw_body = resp.read()
+    except urllib.error.HTTPError as e:
+        return LMStudioValidationResult(
+            ok=False,
+            valid_url=True,
+            host_resolves=True,
+            api_responds=False,
+            hostname=hostname,
+            endpoint=endpoint,
+            error_message=f"[FAIL] LM Studio server responded with HTTP {e.code} at:\n       {endpoint}",
+        )
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return LMStudioValidationResult(
+            ok=False,
+            valid_url=True,
+            host_resolves=True,
+            api_responds=False,
+            hostname=hostname,
+            endpoint=endpoint,
+            error_message=f"[FAIL] LM Studio server did not respond at:\n       {endpoint}",
+        )
+
+    if status_code != 200:
+        return LMStudioValidationResult(
+            ok=False,
+            valid_url=True,
+            host_resolves=True,
+            api_responds=False,
+            hostname=hostname,
+            endpoint=endpoint,
+            error_message=f"[FAIL] LM Studio server responded with HTTP {status_code} at:\n       {endpoint}",
+        )
+
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except Exception:
+        return LMStudioValidationResult(
+            ok=False,
+            valid_url=True,
+            host_resolves=True,
+            api_responds=False,
+            hostname=hostname,
+            endpoint=endpoint,
+            error_message=f"[FAIL] LM Studio server did not return valid JSON from:\n       {endpoint}",
+        )
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        return LMStudioValidationResult(
+            ok=False,
+            valid_url=True,
+            host_resolves=True,
+            api_responds=False,
+            hostname=hostname,
+            endpoint=endpoint,
+            error_message=f"[FAIL] LM Studio response lacks expected 'data' array from:\n       {endpoint}",
+        )
+
+    model_ids = [m.get("id") for m in payload["data"] if isinstance(m, dict) and "id" in m]
+
+    if model:
+        clean_model = model.strip()
+        if clean_model not in model_ids:
+            return LMStudioValidationResult(
+                ok=False,
+                valid_url=True,
+                host_resolves=True,
+                api_responds=True,
+                model_available=False,
+                hostname=hostname,
+                endpoint=endpoint,
+                models=model_ids,
+                error_message=f"[FAIL] LM Studio is reachable, but model\n       {clean_model}\n       was not returned by /v1/models",
+            )
+        model_available = True
+    else:
+        model_available = False
+
+    return LMStudioValidationResult(
+        ok=True,
+        valid_url=True,
+        host_resolves=True,
+        api_responds=True,
+        model_available=model_available,
+        hostname=hostname,
+        endpoint=endpoint,
+        models=model_ids,
+    )
+
+
+def configure_mcp_server(archive_root, skill_dir, env=None):
+    """Configure or update the Personal Archive MCP server transactional entry."""
+    proc_env = os.environ if env is None else env
+
+    # Read existing MCP config
+    existing_mcp = config_get("mcp.servers.personal-archive")
+    existing_env = {}
+    if isinstance(existing_mcp, dict) and isinstance(existing_mcp.get("env"), dict):
+        existing_env = dict(existing_mcp["env"])
+
+    # 1. Resolve URL
+    env_url = proc_env.get("PERSONAL_ARCHIVIST_LMSTUDIO_URL")
+    cfg_url = existing_env.get("PERSONAL_ARCHIVIST_LMSTUDIO_URL")
+    if env_url and env_url.strip():
+        candidate_url = env_url.strip()
+    elif cfg_url and cfg_url.strip():
+        candidate_url = cfg_url.strip()
+    else:
+        print("[FAIL] PERSONAL_ARCHIVIST_LMSTUDIO_URL is not configured.", file=sys.stderr)
+        return 1
+
+    # 2. Resolve Model
+    env_model = proc_env.get("PERSONAL_ARCHIVIST_MODEL")
+    cfg_model = existing_env.get("PERSONAL_ARCHIVIST_MODEL")
+    if env_model and env_model.strip():
+        candidate_model = env_model.strip()
+    elif cfg_model and cfg_model.strip():
+        candidate_model = cfg_model.strip()
+    else:
+        print("[FAIL] PERSONAL_ARCHIVIST_MODEL is not configured.", file=sys.stderr)
+        return 1
+
+    # 3. Resolve Archive Root
+    candidate_root = None
+    if archive_root and str(archive_root).strip():
+        candidate_root = str(archive_root).strip()
+    elif proc_env.get("PERSONAL_ARCHIVE_ROOT") and proc_env["PERSONAL_ARCHIVE_ROOT"].strip():
+        candidate_root = proc_env["PERSONAL_ARCHIVE_ROOT"].strip()
+    elif existing_env.get("PERSONAL_ARCHIVE_ROOT") and existing_env["PERSONAL_ARCHIVE_ROOT"].strip():
+        candidate_root = existing_env["PERSONAL_ARCHIVE_ROOT"].strip()
+    else:
+        skill_root = config_get(CONFIG_ROOT_KEY)
+        if skill_root and str(skill_root).strip():
+            candidate_root = str(skill_root).strip()
+        else:
+            candidate_root = str(Path.home() / "Documents/OpenClaw/PersonalArchive")
+
+    # 4. Validate candidate values before modifying any config
+    val = validate_lmstudio(candidate_url, model=candidate_model, timeout=5.0)
+    if not val.ok:
+        if val.error_message:
+            print(val.error_message, file=sys.stderr)
+        return 1
+
+    # 5. Build updated MCP server entry preserving existing extra env vars
+    updated_env = dict(existing_env)
+    updated_env["PERSONAL_ARCHIVE_ROOT"] = candidate_root
+    updated_env["PERSONAL_ARCHIVIST_LMSTUDIO_URL"] = candidate_url
+    updated_env["PERSONAL_ARCHIVIST_MODEL"] = candidate_model
+
+    script_path = str(Path(os.path.expanduser(skill_dir)) / "scripts/mcp_server.py")
+    mcp_entry = {
+        "command": "python3",
+        "args": [script_path],
+        "env": updated_env,
+    }
+
+    if not config_set("mcp.servers.personal-archive", mcp_entry):
+        print("[FAIL] Failed to update mcp.servers.personal-archive configuration.", file=sys.stderr)
+        return 1
+
+    # Also keep skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT aligned
+    config_set(CONFIG_ROOT_KEY, candidate_root)
+
+    print(f"[PASS] Personal Archive MCP server configured (URL: {candidate_url}, Model: {candidate_model})")
+    return 0
+
+
 def check(archive_root_arg, skill_dir, workspace_dir, main_agents_path=None, summary_only=False):
     results = []
 
@@ -80,7 +346,10 @@ def check(archive_root_arg, skill_dir, workspace_dir, main_agents_path=None, sum
 
     # 4. Archive root configured and exists
     configured_root = config_get(CONFIG_ROOT_KEY)
-    candidate_root = archive_root_arg or configured_root or os.environ.get("PERSONAL_ARCHIVE_ROOT")
+    mcp_server = config_get("mcp.servers.personal-archive")
+    mcp_env = mcp_server.get("env", {}) if (isinstance(mcp_server, dict) and isinstance(mcp_server.get("env"), dict)) else {}
+    mcp_root = mcp_env.get("PERSONAL_ARCHIVE_ROOT")
+    candidate_root = archive_root_arg or (mcp_root if (mcp_root and isinstance(mcp_root, str) and mcp_root.strip()) else None) or configured_root or os.environ.get("PERSONAL_ARCHIVE_ROOT")
     archive_dir_ok = False
     resolved_root = None
     if candidate_root and isinstance(candidate_root, str) and candidate_root.strip():
@@ -172,11 +441,44 @@ def check(archive_root_arg, skill_dir, workspace_dir, main_agents_path=None, sum
     )
 
     # 10c. Personal Archive MCP server registered
-    mcp_server = config_get("mcp.servers.personal-archive")
     mcp_registered = isinstance(mcp_server, dict) and bool(mcp_server.get("command"))
     results.append(
-        ("Personal Archive MCP server registered (mcp.servers.personal-archive)", mcp_registered, "critical")
+        ("Personal Archive MCP server registered", mcp_registered, "critical")
     )
+
+    # 10d. MCP environment configuration
+    mcp_root_ok = bool(mcp_root and isinstance(mcp_root, str) and mcp_root.strip())
+    results.append(
+        ("MCP PERSONAL_ARCHIVE_ROOT configured", mcp_root_ok, "critical")
+    )
+
+    mcp_url = mcp_env.get("PERSONAL_ARCHIVIST_LMSTUDIO_URL")
+    mcp_url_ok = bool(mcp_url and isinstance(mcp_url, str) and mcp_url.strip())
+    results.append(
+        ("MCP PERSONAL_ARCHIVIST_LMSTUDIO_URL configured", mcp_url_ok, "critical")
+    )
+
+    mcp_model = mcp_env.get("PERSONAL_ARCHIVIST_MODEL")
+    mcp_model_ok = bool(mcp_model and isinstance(mcp_model, str) and mcp_model.strip())
+    results.append(
+        ("MCP PERSONAL_ARCHIVIST_MODEL configured", mcp_model_ok, "critical")
+    )
+
+    # 10e. LM Studio connectivity and model verification
+    if mcp_url_ok:
+        val_res = validate_lmstudio(mcp_url, model=mcp_model if mcp_model_ok else None, timeout=5.0)
+        host_ok = val_res.host_resolves
+        api_ok = val_res.api_responds
+        model_ok = val_res.model_available if mcp_model_ok else False
+    else:
+        host_ok = False
+        api_ok = False
+        model_ok = False
+
+    results.append(("LM Studio hostname resolves", host_ok, "critical"))
+    results.append(("LM Studio API responds", api_ok, "critical"))
+    model_desc = f"Vision model {mcp_model} is available" if mcp_model_ok else "Vision model is available"
+    results.append((model_desc, model_ok, "critical"))
 
     # 11. Leaf worker configuration (cannot spawn subagents)
     subagents_cfg = agent.get("subagents", {}) if isinstance(agent, dict) else {}
@@ -279,10 +581,14 @@ def main():
     parser.add_argument("--workspace-directory", default=os.environ.get("AGENT_WORKSPACE"))
     parser.add_argument("--main-agents-file", default=os.environ.get("MAIN_AGENTS_FILE"), help="Path to main agent AGENTS.md")
     parser.add_argument("--summary", action="store_true", help="Quiet summary exit code only")
+    parser.add_argument("--configure-mcp", action="store_true", help="Configure Personal Archive MCP server transactionally")
     args = parser.parse_args()
 
     skill_dir = args.skill_directory or str(get_openclaw_dir() / "workspace/skills/personal-archive")
     workspace_dir = args.workspace_directory or str(get_openclaw_dir() / "workspaces/archivist")
+
+    if args.configure_mcp:
+        return configure_mcp_server(args.archive_root, skill_dir)
 
     return check(args.archive_root, skill_dir, workspace_dir, main_agents_path=args.main_agents_file, summary_only=args.summary)
 

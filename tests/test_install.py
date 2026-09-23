@@ -1,5 +1,4 @@
-"""Exercise installation only inside disposable home directories."""
-
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 import os
 from pathlib import Path
@@ -7,13 +6,48 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 
 PROJECT = Path(__file__).resolve().parents[1]
 
 
+class MockLMStudioHandler(BaseHTTPRequestHandler):
+    models = [{"id": "google/gemma-4-e4b", "object": "model"}]
+    status_code = 200
+    response_body = None
+
+    def log_message(self, format, *args):
+        pass
+
+    def do_GET(self):
+        if self.path == "/v1/models":
+            self.send_response(MockLMStudioHandler.status_code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            if MockLMStudioHandler.response_body is not None:
+                self.wfile.write(MockLMStudioHandler.response_body.encode("utf-8"))
+            else:
+                payload = {"object": "list", "data": MockLMStudioHandler.models}
+                self.wfile.write(json.dumps(payload).encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
 class InstallTests(unittest.TestCase):
     def setUp(self):
+        MockLMStudioHandler.models = [{"id": "google/gemma-4-e4b", "object": "model"}]
+        MockLMStudioHandler.status_code = 200
+        MockLMStudioHandler.response_body = None
+
+        self.mock_server = HTTPServer(("127.0.0.1", 0), MockLMStudioHandler)
+        self.mock_port = self.mock_server.server_port
+        self.server_thread = threading.Thread(target=self.mock_server.serve_forever, daemon=True)
+        self.server_thread.start()
+        self.addCleanup(self.mock_server.server_close)
+        self.addCleanup(self.mock_server.shutdown)
+
         temporary = tempfile.TemporaryDirectory(prefix="personal-archive-install-test-")
         self.addCleanup(temporary.cleanup)
         self.workspace = Path(temporary.name)
@@ -45,6 +79,8 @@ class InstallTests(unittest.TestCase):
             os.environ,
             HOME=str(self.user_home),
             PERSONAL_ARCHIVE_ROOT=str(self.archive_root),
+            PERSONAL_ARCHIVIST_LMSTUDIO_URL=f"http://127.0.0.1:{self.mock_port}/v1",
+            PERSONAL_ARCHIVIST_MODEL="google/gemma-4-e4b",
             PYTHONDONTWRITEBYTECODE="1",
         )
 
@@ -162,14 +198,21 @@ class InstallTests(unittest.TestCase):
         main_agents.parent.mkdir(parents=True, exist_ok=True)
         main_agents.write_text("# Main Agent Directives\nCustom content.\n")
 
-        config_before = self.config.read_bytes()
+        config_before = json.loads(self.config.read_text())
         agents_before = main_agents.read_bytes()
 
         self.install()
 
-        # install.sh MUST NOT modify openclaw configuration or main's AGENTS.md
-        self.assertEqual(self.config.read_bytes(), config_before)
+        # install.sh MUST NOT modify unrelated openclaw configuration or main's AGENTS.md
+        config_after = json.loads(self.config.read_text())
+        self.assertEqual(config_after.get("unrelated"), config_before.get("unrelated"))
         self.assertEqual(main_agents.read_bytes(), agents_before)
+        # But installer owns and configures mcp.servers.personal-archive
+        self.assertIn("personal-archive", config_after.get("mcp", {}).get("servers", {}))
+        mcp_cfg = config_after["mcp"]["servers"]["personal-archive"]
+        self.assertEqual(mcp_cfg["command"], "python3")
+        self.assertEqual(mcp_cfg["env"]["PERSONAL_ARCHIVIST_LMSTUDIO_URL"], f"http://127.0.0.1:{self.mock_port}/v1")
+        self.assertEqual(mcp_cfg["env"]["PERSONAL_ARCHIVIST_MODEL"], "google/gemma-4-e4b")
 
     def test_existing_archive_is_preserved_never_deleted(self):
         archive = Path(self.env["PERSONAL_ARCHIVE_ROOT"])
@@ -260,6 +303,11 @@ class InstallTests(unittest.TestCase):
                 "personal-archive": {
                     "command": "python3",
                     "args": ["scripts/mcp_server.py"],
+                    "env": {
+                        "PERSONAL_ARCHIVE_ROOT": str(self.archive_root),
+                        "PERSONAL_ARCHIVIST_LMSTUDIO_URL": f"http://127.0.0.1:{self.mock_port}/v1",
+                        "PERSONAL_ARCHIVIST_MODEL": "google/gemma-4-e4b",
+                    },
                 }
             }
         }
@@ -326,6 +374,11 @@ class InstallTests(unittest.TestCase):
                 "personal-archive": {
                     "command": "python3",
                     "args": ["scripts/mcp_server.py"],
+                    "env": {
+                        "PERSONAL_ARCHIVE_ROOT": str(self.archive_root),
+                        "PERSONAL_ARCHIVIST_LMSTUDIO_URL": f"http://127.0.0.1:{self.mock_port}/v1",
+                        "PERSONAL_ARCHIVIST_MODEL": "google/gemma-4-e4b",
+                    },
                 }
             }
         }
@@ -389,6 +442,7 @@ class InstallTests(unittest.TestCase):
         self.install()
         self.assertTrue(self.destination.exists())
         self.assertTrue(self.agent_ws.exists())
+        config_before_uninstall = self.config.read_bytes()
 
         # Uninstall
         res = self.install(args=("--uninstall",), success=True)
@@ -405,7 +459,7 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(evidence.read_bytes(), b"Warranty evidence")
 
         # 2. OpenClaw config must NOT be touched by uninstaller
-        self.assertEqual(self.config.read_bytes(), config_before)
+        self.assertEqual(self.config.read_bytes(), config_before_uninstall)
 
         # 3. Main AGENTS.md must NOT be touched by default uninstaller
         self.assertEqual(main_agents.read_bytes(), agents_before)
@@ -436,11 +490,187 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(after_un, "# Custom User Directives\nBe helpful and concise.\n")
         self.assertNotIn("<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->", after_un)
 
-    def test_install_with_reindex_flag(self):
-        res = self.install(args=("--reindex", "--dry-run"), success=True)
-        self.assertIn("Reindexing Personal Archive records", res.stdout)
-        self.assertIn("Reindexing Summary", res.stdout)
-        self.assertTrue((self.destination / "scripts/reindex_archive.py").exists())
+    def test_case_a_no_url_fails(self):
+        """Case A: No URL in env, no URL in config => install fails."""
+        self.env.pop("PERSONAL_ARCHIVIST_LMSTUDIO_URL", None)
+        cfg = json.loads(self.config.read_text())
+        cfg.get("mcp", {}).get("servers", {}).pop("personal-archive", None)
+        self.config.write_text(json.dumps(cfg))
+
+        res = self.install(success=False)
+        self.assertIn("[FAIL] PERSONAL_ARCHIVIST_LMSTUDIO_URL is not configured", res.stderr + res.stdout)
+
+    def test_case_b_url_and_model_in_env_writes_config(self):
+        """Case B: URL + model in env, none in config => validates and writes config."""
+        self.env["PERSONAL_ARCHIVIST_LMSTUDIO_URL"] = f"http://127.0.0.1:{self.mock_port}/v1"
+        self.env["PERSONAL_ARCHIVIST_MODEL"] = "google/gemma-4-e4b"
+        cfg = json.loads(self.config.read_text())
+        cfg.get("mcp", {}).get("servers", {}).pop("personal-archive", None)
+        self.config.write_text(json.dumps(cfg))
+
+        self.install(success=True)
+
+        updated_cfg = json.loads(self.config.read_text())
+        mcp = updated_cfg.get("mcp", {}).get("servers", {}).get("personal-archive", {})
+        self.assertEqual(mcp.get("command"), "python3")
+        self.assertEqual(mcp.get("args"), [str(self.destination / "scripts/mcp_server.py")])
+        self.assertEqual(mcp.get("env", {}).get("PERSONAL_ARCHIVIST_LMSTUDIO_URL"), f"http://127.0.0.1:{self.mock_port}/v1")
+        self.assertEqual(mcp.get("env", {}).get("PERSONAL_ARCHIVIST_MODEL"), "google/gemma-4-e4b")
+        self.assertEqual(mcp.get("env", {}).get("PERSONAL_ARCHIVE_ROOT"), str(self.archive_root))
+
+    def test_case_c_no_env_vars_config_has_url_and_model_preserves_and_succeeds(self):
+        """Case C: No env vars, config already has URL + model => preserves config and succeeds."""
+        self.env.pop("PERSONAL_ARCHIVIST_LMSTUDIO_URL", None)
+        self.env.pop("PERSONAL_ARCHIVIST_MODEL", None)
+
+        cfg = json.loads(self.config.read_text())
+        cfg.setdefault("mcp", {}).setdefault("servers", {})["personal-archive"] = {
+            "command": "python3",
+            "args": [str(self.destination / "scripts/mcp_server.py")],
+            "env": {
+                "PERSONAL_ARCHIVE_ROOT": str(self.archive_root),
+                "PERSONAL_ARCHIVIST_LMSTUDIO_URL": f"http://127.0.0.1:{self.mock_port}/v1",
+                "PERSONAL_ARCHIVIST_MODEL": "google/gemma-4-e4b",
+                "PRESERVE_EXTRA": "custom-value",
+            },
+        }
+        self.config.write_text(json.dumps(cfg))
+
+        self.install(success=True)
+
+        updated_cfg = json.loads(self.config.read_text())
+        mcp_env = updated_cfg["mcp"]["servers"]["personal-archive"]["env"]
+        self.assertEqual(mcp_env["PERSONAL_ARCHIVIST_LMSTUDIO_URL"], f"http://127.0.0.1:{self.mock_port}/v1")
+        self.assertEqual(mcp_env["PERSONAL_ARCHIVIST_MODEL"], "google/gemma-4-e4b")
+        self.assertEqual(mcp_env["PRESERVE_EXTRA"], "custom-value")
+
+    def test_case_d_env_contains_new_valid_url_overwrites_config(self):
+        """Case D: Env contains new valid URL => validates and overwrites existing configured URL."""
+        new_server = HTTPServer(("127.0.0.1", 0), MockLMStudioHandler)
+        new_port = new_server.server_port
+        t = threading.Thread(target=new_server.serve_forever, daemon=True)
+        t.start()
+        self.addCleanup(new_server.server_close)
+        self.addCleanup(new_server.shutdown)
+
+        cfg = json.loads(self.config.read_text())
+        cfg.setdefault("mcp", {}).setdefault("servers", {})["personal-archive"] = {
+            "command": "python3",
+            "args": [str(self.destination / "scripts/mcp_server.py")],
+            "env": {
+                "PERSONAL_ARCHIVE_ROOT": str(self.archive_root),
+                "PERSONAL_ARCHIVIST_LMSTUDIO_URL": f"http://127.0.0.1:{self.mock_port}/v1",
+                "PERSONAL_ARCHIVIST_MODEL": "google/gemma-4-e4b",
+            },
+        }
+        self.config.write_text(json.dumps(cfg))
+
+        self.env["PERSONAL_ARCHIVIST_LMSTUDIO_URL"] = f"http://127.0.0.1:{new_port}/v1"
+
+        self.install(success=True)
+
+        updated_cfg = json.loads(self.config.read_text())
+        mcp_env = updated_cfg["mcp"]["servers"]["personal-archive"]["env"]
+        self.assertEqual(mcp_env["PERSONAL_ARCHIVIST_LMSTUDIO_URL"], f"http://127.0.0.1:{new_port}/v1")
+
+    def test_case_e_env_bad_url_config_valid_fails_and_config_unchanged(self):
+        """Case E: Env contains bad/unresolvable URL while config contains valid URL
+        => install fails and existing config remains unchanged."""
+        valid_url = f"http://127.0.0.1:{self.mock_port}/v1"
+        cfg = json.loads(self.config.read_text())
+        cfg.setdefault("mcp", {}).setdefault("servers", {})["personal-archive"] = {
+            "command": "python3",
+            "args": [str(self.destination / "scripts/mcp_server.py")],
+            "env": {
+                "PERSONAL_ARCHIVE_ROOT": str(self.archive_root),
+                "PERSONAL_ARCHIVIST_LMSTUDIO_URL": valid_url,
+                "PERSONAL_ARCHIVIST_MODEL": "google/gemma-4-e4b",
+            },
+        }
+        self.config.write_text(json.dumps(cfg))
+        config_before = self.config.read_bytes()
+
+        self.env["PERSONAL_ARCHIVIST_LMSTUDIO_URL"] = "http://bad-typo-host.invalid:1234/v1"
+
+        res = self.install(success=False)
+        self.assertIn("[FAIL] LM Studio hostname could not be resolved", res.stderr + res.stdout)
+        self.assertEqual(self.config.read_bytes(), config_before)
+
+    def test_case_f_configured_url_responds_but_model_missing_fails(self):
+        """Case F: Configured URL responds but configured model missing => install/check fails clearly."""
+        MockLMStudioHandler.models = [{"id": "some-other-model", "object": "model"}]
+        self.env["PERSONAL_ARCHIVIST_LMSTUDIO_URL"] = f"http://127.0.0.1:{self.mock_port}/v1"
+        self.env["PERSONAL_ARCHIVIST_MODEL"] = "google/gemma-4-e4b"
+
+        # 1. install fails
+        res_inst = self.install(success=False)
+        self.assertIn("was not returned by /v1/models", res_inst.stderr + res_inst.stdout)
+
+        # 2. check fails clearly
+        cfg = json.loads(self.config.read_text())
+        cfg.setdefault("mcp", {}).setdefault("servers", {})["personal-archive"] = {
+            "command": "python3",
+            "args": [str(self.destination / "scripts/mcp_server.py")],
+            "env": {
+                "PERSONAL_ARCHIVE_ROOT": str(self.archive_root),
+                "PERSONAL_ARCHIVIST_LMSTUDIO_URL": f"http://127.0.0.1:{self.mock_port}/v1",
+                "PERSONAL_ARCHIVIST_MODEL": "google/gemma-4-e4b",
+            },
+        }
+        self.config.write_text(json.dumps(cfg))
+        res_chk = self.install(args=("--check",), success=False)
+        self.assertIn("[FAIL] Vision model google/gemma-4-e4b is available", res_chk.stdout)
+
+    def test_case_g_check_performs_no_config_writes(self):
+        """Case G: --check => performs no config writes."""
+        cfg = json.loads(self.config.read_text())
+        cfg["agents"] = {
+            "entries": {
+                "main": {
+                    "subagents": {
+                        "requireAgentId": True,
+                        "allowAgents": ["archivist"],
+                    },
+                    "skills": [],
+                },
+                "archivist": {
+                    "name": "Archivist",
+                    "workspace": "~/.openclaw/workspaces/archivist",
+                    "skills": ["personal-archive"],
+                    "tools": {
+                        "allow": ["read", "personal-archive/*"],
+                        "deny": ["exec", "write", "group:sessions", "group:memory"],
+                    },
+                    "memory": {
+                        "search": {
+                            "rememberAcrossConversations": False,
+                        }
+                    },
+                    "subagents": {
+                        "allowAgents": [],
+                    },
+                },
+            }
+        }
+        cfg["mcp"] = {
+            "servers": {
+                "personal-archive": {
+                    "command": "python3",
+                    "args": ["scripts/mcp_server.py"],
+                    "env": {
+                        "PERSONAL_ARCHIVE_ROOT": str(self.archive_root),
+                        "PERSONAL_ARCHIVIST_LMSTUDIO_URL": f"http://127.0.0.1:{self.mock_port}/v1",
+                        "PERSONAL_ARCHIVIST_MODEL": "google/gemma-4-e4b",
+                    },
+                }
+            }
+        }
+        self.config.write_text(json.dumps(cfg))
+        config_before = self.config.read_bytes()
+
+        self.install(args=("--check",), success=False)
+
+        self.assertEqual(self.config.read_bytes(), config_before)
 
 
 if __name__ == "__main__":

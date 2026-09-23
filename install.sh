@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Installs and manages Personal Archive software artifacts and dedicated agent workspace.
-# Personal Archive does NOT automatically administer or rewrite OpenClaw configuration.
+# install.sh — Installs and manages Personal Archive software artifacts, MCP server configuration, and dedicated agent workspace.
 # For OpenClaw configuration procedures, see docs/OPENCLAW_SETUP.md.
 
 set -euo pipefail
@@ -244,6 +243,26 @@ elif [[ -n "${PERSONAL_ARCHIVE_ROOT:-}" ]]; then
   resolved_archive_root="$PERSONAL_ARCHIVE_ROOT"
 elif configured_json="$(openclaw config get skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$configured_json" && "$configured_json" != "null" ]]; then
   resolved_archive_root="$(python3 -c "import json, sys; print(json.loads(sys.argv[1]) or '')" "$configured_json" 2>/dev/null || echo "")"
+elif mcp_root_json="$(openclaw config get mcp.servers.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$mcp_root_json" && "$mcp_root_json" != "null" ]]; then
+  resolved_archive_root="$(python3 -c "import json, sys; print(json.loads(sys.argv[1]) or '')" "$mcp_root_json" 2>/dev/null || echo "")"
+fi
+
+# 4b. Configure Personal Archive MCP Server entry
+echo "Configuring Personal Archive MCP server..."
+mcp_config_args=(--configure-mcp --skill-directory "$DEST")
+if [[ -n "$resolved_archive_root" ]]; then
+  mcp_config_args+=(--archive-root "$resolved_archive_root")
+fi
+
+if ! python3 "$SRC/scripts/check_openclaw.py" "${mcp_config_args[@]}"; then
+  echo "Installation failed during Personal Archive MCP server configuration." >&2
+  exit 1
+fi
+
+if [[ -z "$resolved_archive_root" ]]; then
+  if mcp_root_json="$(openclaw config get mcp.servers.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$mcp_root_json" && "$mcp_root_json" != "null" ]]; then
+    resolved_archive_root="$(python3 -c "import json, sys; print(json.loads(sys.argv[1]) or '')" "$mcp_root_json" 2>/dev/null || echo "")"
+  fi
 fi
 
 if [[ -n "$resolved_archive_root" ]]; then
