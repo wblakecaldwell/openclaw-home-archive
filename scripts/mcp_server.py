@@ -383,7 +383,7 @@ def prepare_image_data_uri(
 def query_vision_model(
     data_uri: str,
     prompt_text: str,
-    timeout: int = 30,
+    timeout: int = 60,
 ) -> str:
     """Query the local vision model (Gemma 4 via LM Studio) with an image data URI and prompt."""
     raw_url = os.environ.get("PERSONAL_ARCHIVIST_LMSTUDIO_URL") or os.environ.get("LMSTUDIO_URL") or os.environ.get("LM_STUDIO_URL") or "http://localhost:1234/v1"
@@ -640,7 +640,7 @@ def enrich_spec_with_image_analysis(arguments: Dict[str, Any]) -> None:
         prompt_text = "\n".join(prompt_parts)
 
         try:
-            raw_analysis = query_vision_model(data_uri, prompt_text, timeout=30)
+            raw_analysis = query_vision_model(data_uri, prompt_text, timeout=60)
             extracted = parse_structured_extraction(raw_analysis)
         except Exception as exc:
             # Graceful degradation: never abort mutation if vision fails
