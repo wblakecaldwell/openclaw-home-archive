@@ -23,6 +23,13 @@ if args[:2] == ["config", "get"]:
             print("Config path not found: " + key, file=sys.stderr)
             sys.exit(1)
         value = value[part]
+    if os.environ.get("TEST_OPENCLAW_REDACT_SECRETS"):
+        if key.startswith("mcp.servers.personal-archive") or key.startswith("skills.entries.personal-archive"):
+            if isinstance(value, dict) and "env" in value and isinstance(value["env"], dict):
+                value = dict(value)
+                value["env"] = {k: "__OPENCLAW_REDACTED__" for k in value["env"]}
+            elif isinstance(value, str) and any(x in key for x in ("ROOT", "URL", "MODEL", "TOKEN")):
+                value = "__OPENCLAW_REDACTED__"
     print(json.dumps(value))
 elif args[:2] == ["config", "set"]:
     if os.environ.get("TEST_OPENCLAW_WRITE_FAILURE"):

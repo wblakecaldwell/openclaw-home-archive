@@ -747,6 +747,54 @@ class InstallTests(unittest.TestCase):
         self.assertIn("[PASS] LM Studio API responds", res_chk.stdout)
         self.assertEqual(MockLMStudioHandler.received_auth, "Bearer secret-token-123")
 
+    def test_check_resolves_unredacted_config_when_cli_redacts(self):
+        """Verify check unredacts config from openclaw.json when CLI masks values."""
+        self.install(success=True)
+
+        data = json.loads(self.config.read_text())
+        data["agents"] = {
+            "entries": {
+                "main": {
+                    "subagents": {
+                        "requireAgentId": True,
+                        "allowAgents": ["archivist"],
+                    },
+                    "skills": [],
+                },
+                "archivist": {
+                    "name": "Archivist",
+                    "workspace": "~/.openclaw/workspaces/archivist",
+                    "skills": ["personal-archive"],
+                    "tools": {
+                        "allow": ["read", "personal-archive/*"],
+                        "deny": ["exec", "write", "group:sessions", "group:memory"],
+                    },
+                    "memory": {
+                        "search": {
+                            "rememberAcrossConversations": False,
+                        }
+                    },
+                    "subagents": {
+                        "allowAgents": [],
+                    },
+                },
+            }
+        }
+        self.config.write_text(json.dumps(data))
+        main_agents = self.user_home / ".openclaw/workspace/AGENTS.md"
+        main_agents.parent.mkdir(parents=True, exist_ok=True)
+        main_agents.write_text(
+            "# Main Directives\n<!-- BEGIN OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+            "archivist delegation directives\n<!-- END OPENCLAW PERSONAL ARCHIVE MANAGED ROUTING DIRECTIVES -->\n"
+        )
+
+        # Enable CLI redaction simulation
+        self.env["TEST_OPENCLAW_REDACT_SECRETS"] = "1"
+        res = self.install(args=("--check",), success=True)
+        self.assertIn("[PASS] LM Studio API responds", res.stdout)
+        self.assertIn("[PASS] Vision model google/gemma-4-e4b is available", res.stdout)
+        self.assertNotIn("__OPENCLAW_REDACTED__", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

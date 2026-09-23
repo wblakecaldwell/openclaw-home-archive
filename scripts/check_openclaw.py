@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
@@ -23,8 +24,86 @@ def get_openclaw_dir():
     return Path(os.path.expanduser("~/.openclaw"))
 
 
+def read_openclaw_config_file():
+    """Read the raw OpenClaw config file directly to avoid CLI redaction (__OPENCLAW_REDACTED__)."""
+    candidates = []
+    if "TEST_OPENCLAW_CONFIG" in os.environ:
+        candidates.append(Path(os.environ["TEST_OPENCLAW_CONFIG"]))
+    if "OPENCLAW_CONFIG_PATH" in os.environ:
+        candidates.append(Path(os.environ["OPENCLAW_CONFIG_PATH"]))
+
+    openclaw_dir = get_openclaw_dir()
+    candidates.append(openclaw_dir / "openclaw.json")
+    candidates.append(openclaw_dir / "openclaw.json5")
+    candidates.append(Path.home() / ".openclaw/openclaw.json")
+    candidates.append(Path.home() / ".openclaw/openclaw.json5")
+
+    for path in candidates:
+        if path and path.is_file():
+            try:
+                text = path.read_text(encoding="utf-8")
+                try:
+                    return json.loads(text)
+                except Exception:
+                    pass
+                clean = re.sub(r"//.*", "", text)
+                clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)
+                clean = re.sub(r",\s*([}\]])", r"\1", clean)
+                clean = re.sub(
+                    r"([{,]\s*)([a-zA-Z_][a-zA-Z0-9_-]*)\s*:",
+                    lambda m: m.group(1) + '"' + m.group(2) + '":',
+                    clean,
+                )
+                return json.loads(clean)
+            except Exception:
+                continue
+    return None
+
+
+def config_get_from_file(key):
+    """Retrieve key from the unredacted openclaw.json / openclaw.json5 file on disk."""
+    cfg = read_openclaw_config_file()
+    if not isinstance(cfg, dict):
+        return None
+    val = cfg
+    for part in key.split("."):
+        if not isinstance(val, dict) or part not in val:
+            return None
+        val = val[part]
+    return val
+
+
+def _has_redaction(obj):
+    if isinstance(obj, str):
+        return "__OPENCLAW_REDACTED__" in obj
+    if isinstance(obj, dict):
+        return any(_has_redaction(v) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_has_redaction(item) for item in obj)
+    return False
+
+
+def _unredact(res_obj, file_obj):
+    if res_obj is None or _has_redaction(res_obj):
+        return file_obj if file_obj is not None else res_obj
+    if isinstance(res_obj, dict) and isinstance(file_obj, dict):
+        merged = dict(res_obj)
+        for k, v in file_obj.items():
+            if k not in merged or _has_redaction(merged[k]):
+                merged[k] = v
+            elif isinstance(merged[k], dict) and isinstance(v, dict):
+                merged[k] = _unredact(merged[k], v)
+        return merged
+    return res_obj
+
+
 def config_get(key):
-    """Read a configuration value from OpenClaw without mutating anything."""
+    """Read a configuration value from OpenClaw without mutating anything.
+
+    If the value returned by CLI is redacted (__OPENCLAW_REDACTED__) or CLI is missing,
+    falls back to reading the raw config file directly from disk.
+    """
+    result = None
     try:
         # First attempt with --json
         res = subprocess.run(
@@ -41,17 +120,28 @@ def config_get(key):
                 text=True,
                 check=False,
             )
-            if res.returncode != 0:
-                return None
-        stdout = res.stdout.strip()
-        if not stdout or "Config path is valid but unset" in stdout:
-            return None
-        try:
-            return json.loads(stdout)
-        except Exception:
-            return stdout
+            if res.returncode == 0:
+                stdout = res.stdout.strip()
+                if stdout and "Config path is valid but unset" not in stdout:
+                    try:
+                        result = json.loads(stdout)
+                    except Exception:
+                        result = stdout
+        else:
+            stdout = res.stdout.strip()
+            if stdout and "Config path is valid but unset" not in stdout:
+                try:
+                    result = json.loads(stdout)
+                except Exception:
+                    result = stdout
     except (FileNotFoundError, OSError):
-        return None
+        result = None
+
+    if result is None or _has_redaction(result):
+        file_val = config_get_from_file(key)
+        result = _unredact(result, file_val)
+
+    return result
 
 
 def config_set(key, value):

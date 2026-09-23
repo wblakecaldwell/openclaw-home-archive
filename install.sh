@@ -131,8 +131,18 @@ if [[ "$mode" == "uninstall" ]]; then
   configured_root=""
   if [[ -n "$archive_root" ]]; then
     configured_root="$archive_root"
-  elif configured_json="$(openclaw config get skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$configured_json" && "$configured_json" != "null" ]]; then
+  elif configured_json="$(openclaw config get skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$configured_json" && "$configured_json" != "null" && "$configured_json" != *"__OPENCLAW_REDACTED__"* ]]; then
     configured_root="$(python3 -c "import json, sys; print(json.loads(sys.argv[1]) or '')" "$configured_json" 2>/dev/null || echo "")"
+  fi
+  if [[ -z "$configured_root" || "$configured_root" == *"__OPENCLAW_REDACTED__"* ]]; then
+    configured_root="$(python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import check_openclaw
+val = check_openclaw.config_get("mcp.servers.personal-archive.env.PERSONAL_ARCHIVE_ROOT") or check_openclaw.config_get("skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT")
+if val and "__OPENCLAW_REDACTED__" not in str(val):
+    print(str(val))
+' "$SRC/scripts" 2>/dev/null || true)"
   fi
 
   echo ""
@@ -241,16 +251,27 @@ if [[ -n "$archive_root" ]]; then
   resolved_archive_root="$archive_root"
 elif [[ -n "${PERSONAL_ARCHIVE_ROOT:-}" ]]; then
   resolved_archive_root="$PERSONAL_ARCHIVE_ROOT"
-elif configured_json="$(openclaw config get skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$configured_json" && "$configured_json" != "null" ]]; then
+elif configured_json="$(openclaw config get skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$configured_json" && "$configured_json" != "null" && "$configured_json" != *"__OPENCLAW_REDACTED__"* ]]; then
   resolved_archive_root="$(python3 -c "import json, sys; print(json.loads(sys.argv[1]) or '')" "$configured_json" 2>/dev/null || echo "")"
-elif mcp_root_json="$(openclaw config get mcp.servers.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$mcp_root_json" && "$mcp_root_json" != "null" ]]; then
+elif mcp_root_json="$(openclaw config get mcp.servers.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$mcp_root_json" && "$mcp_root_json" != "null" && "$mcp_root_json" != *"__OPENCLAW_REDACTED__"* ]]; then
   resolved_archive_root="$(python3 -c "import json, sys; print(json.loads(sys.argv[1]) or '')" "$mcp_root_json" 2>/dev/null || echo "")"
+fi
+
+if [[ -z "$resolved_archive_root" || "$resolved_archive_root" == *"__OPENCLAW_REDACTED__"* ]]; then
+  resolved_archive_root="$(python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import check_openclaw
+val = check_openclaw.config_get("mcp.servers.personal-archive.env.PERSONAL_ARCHIVE_ROOT") or check_openclaw.config_get("skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT")
+if val and "__OPENCLAW_REDACTED__" not in str(val):
+    print(str(val))
+' "$SRC/scripts" 2>/dev/null || true)"
 fi
 
 # 4b. Configure Personal Archive MCP Server entry
 echo "Configuring Personal Archive MCP server..."
 mcp_config_args=(--configure-mcp --skill-directory "$DEST")
-if [[ -n "$resolved_archive_root" ]]; then
+if [[ -n "$resolved_archive_root" && "$resolved_archive_root" != *"__OPENCLAW_REDACTED__"* ]]; then
   mcp_config_args+=(--archive-root "$resolved_archive_root")
 fi
 
@@ -259,10 +280,15 @@ if ! python3 "$SRC/scripts/check_openclaw.py" "${mcp_config_args[@]}"; then
   exit 1
 fi
 
-if [[ -z "$resolved_archive_root" ]]; then
-  if mcp_root_json="$(openclaw config get mcp.servers.personal-archive.env.PERSONAL_ARCHIVE_ROOT --json 2>/dev/null)" && [[ -n "$mcp_root_json" && "$mcp_root_json" != "null" ]]; then
-    resolved_archive_root="$(python3 -c "import json, sys; print(json.loads(sys.argv[1]) or '')" "$mcp_root_json" 2>/dev/null || echo "")"
-  fi
+if [[ -z "$resolved_archive_root" || "$resolved_archive_root" == *"__OPENCLAW_REDACTED__"* ]]; then
+  resolved_archive_root="$(python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import check_openclaw
+val = check_openclaw.config_get("mcp.servers.personal-archive.env.PERSONAL_ARCHIVE_ROOT") or check_openclaw.config_get("skills.entries.personal-archive.env.PERSONAL_ARCHIVE_ROOT")
+if val and "__OPENCLAW_REDACTED__" not in str(val):
+    print(str(val))
+' "$SRC/scripts" 2>/dev/null || true)"
 fi
 
 if [[ -n "$resolved_archive_root" ]]; then
