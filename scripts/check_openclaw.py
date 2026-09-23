@@ -25,49 +25,55 @@ def get_openclaw_dir():
 
 def config_get(key):
     """Read a configuration value from OpenClaw without mutating anything."""
-    # First attempt with --json
-    res = subprocess.run(
-        ["openclaw", "config", "get", key, "--json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if res.returncode != 0:
-        # Retry without --json
+    try:
+        # First attempt with --json
         res = subprocess.run(
-            ["openclaw", "config", "get", key],
+            ["openclaw", "config", "get", key, "--json"],
             capture_output=True,
             text=True,
             check=False,
         )
         if res.returncode != 0:
+            # Retry without --json
+            res = subprocess.run(
+                ["openclaw", "config", "get", key],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if res.returncode != 0:
+                return None
+        stdout = res.stdout.strip()
+        if not stdout or "Config path is valid but unset" in stdout:
             return None
-    stdout = res.stdout.strip()
-    if not stdout or "Config path is valid but unset" in stdout:
+        try:
+            return json.loads(stdout)
+        except Exception:
+            return stdout
+    except (FileNotFoundError, OSError):
         return None
-    try:
-        return json.loads(stdout)
-    except Exception:
-        return stdout
 
 
 def config_set(key, value):
     """Write a configuration value to OpenClaw."""
     val_str = json.dumps(value)
-    res = subprocess.run(
-        ["openclaw", "config", "set", key, val_str, "--strict-json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if res.returncode != 0:
+    try:
         res = subprocess.run(
-            ["openclaw", "config", "set", key, val_str],
+            ["openclaw", "config", "set", key, val_str, "--strict-json"],
             capture_output=True,
             text=True,
             check=False,
         )
-    return res.returncode == 0
+        if res.returncode != 0:
+            res = subprocess.run(
+                ["openclaw", "config", "set", key, val_str],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        return res.returncode == 0
+    except (FileNotFoundError, OSError):
+        return False
 
 
 class LMStudioValidationResult:
@@ -97,7 +103,13 @@ class LMStudioValidationResult:
 def get_lmstudio_token(proc_env=None, cfg_env=None):
     """Resolve LM Studio API token from environment or config."""
     pe = os.environ if proc_env is None else proc_env
-    ce = cfg_env or {}
+    ce = cfg_env
+    if ce is None:
+        mcp_cfg = config_get("mcp.servers.personal-archive")
+        if isinstance(mcp_cfg, dict) and isinstance(mcp_cfg.get("env"), dict):
+            ce = mcp_cfg["env"]
+        else:
+            ce = {}
     return (
         pe.get("PERSONAL_ARCHIVIST_LMSTUDIO_API_TOKEN")
         or pe.get("LMSTUDIO_API_TOKEN")
@@ -159,7 +171,14 @@ def validate_lmstudio(url, model=None, token=None, timeout=5.0):
 
     resolved_token = token if token is not None else get_lmstudio_token()
 
-    endpoint = clean_url.rstrip("/") + "/models"
+    clean_url_stripped = clean_url.rstrip("/")
+    if clean_url_stripped.endswith("/models"):
+        endpoint = clean_url_stripped
+    elif clean_url_stripped.endswith("/v1"):
+        endpoint = clean_url_stripped + "/models"
+    else:
+        endpoint = clean_url_stripped + "/v1/models"
+
     headers = {"User-Agent": "OpenClaw-PersonalArchive"}
     if resolved_token and str(resolved_token).strip():
         headers["Authorization"] = f"Bearer {str(resolved_token).strip()}"
@@ -510,6 +529,7 @@ def check(archive_root_arg, skill_dir, workspace_dir, main_agents_path=None, sum
     )
 
     # 10e. LM Studio connectivity and model verification
+    val_res = None
     if mcp_url_ok:
         mcp_token = get_lmstudio_token(cfg_env=mcp_env)
         val_res = validate_lmstudio(mcp_url, model=mcp_model if mcp_model_ok else None, token=mcp_token, timeout=5.0)
@@ -605,6 +625,9 @@ def check(archive_root_arg, skill_dir, workspace_dir, main_agents_path=None, sum
         else:
             status = "[FAIL]"
         print(f"  {status} {desc}")
+        if not passed and ("LM Studio API responds" in desc or "Vision model" in desc) and val_res and val_res.error_message:
+            for err_line in val_res.error_message.splitlines():
+                print(f"       {err_line}")
     print("==============================================")
 
     if all_critical_passed:
